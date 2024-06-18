@@ -11,6 +11,7 @@ enum ConfigError parse_app_config(void) {
     memset(&app_config, 0, sizeof(struct AppConfig));
 
     app_config.web_port = 8080;
+    app_config.web_enable_auth = false;
     app_config.web_enable_static = false;
     app_config.isp_thread_stack_size = 16 * 1024;
     app_config.venc_stream_thread_stack_size = 16 * 1024;
@@ -60,12 +61,18 @@ enum ConfigError parse_app_config(void) {
             &ini, "system", "sensor_config", app_config.sensor_config);
         if (err != CONFIG_OK)
             goto RET_ERR;
-    }
+    } else if (plat != HAL_PLATFORM_GM)
+        parse_param_value(&ini, "system", "sensor_config", app_config.sensor_config);
     int port;
     err = parse_int(&ini, "system", "web_port", 1, INT_MAX, &port);
     if (err != CONFIG_OK)
         goto RET_ERR;
     app_config.web_port = (unsigned short)port;
+    parse_bool(&ini, "system", "web_enable_auth", &app_config.web_enable_auth);
+    parse_param_value(
+        &ini, "system", "web_auth_user", app_config.web_auth_user);
+    parse_param_value(
+        &ini, "system", "web_auth_pass", app_config.web_auth_pass);
     err = parse_bool(
         &ini, "system", "web_enable_static", &app_config.web_enable_static);
     if (err != CONFIG_OK)

@@ -1,4 +1,4 @@
-#include "video.h"
+#include "media.h"
 
 #include <pthread.h>
 #include <signal.h>
@@ -13,8 +13,15 @@
 #include "server.h"
 
 pthread_mutex_t mutex;
+pthread_t audPid = 0;
 pthread_t ispPid = 0;
-pthread_t vencPid = 0;
+pthread_t vidPid = 0;
+
+int save_audio_stream(hal_audframe *frame) {
+    int ret = EXIT_SUCCESS;
+
+    return ret;
+}
 
 int save_video_stream(char index, hal_vidstream *stream) {
     int ret;
@@ -82,22 +89,8 @@ int save_video_stream(char index, hal_vidstream *stream) {
     return EXIT_SUCCESS;
 }
 
-int take_next_free_channel(bool mainLoop) {
-    pthread_mutex_lock(&mutex);
-    for (int i = 0; i < chnCount; i++) {
-        if (!chnState[i].enable) {
-            chnState[i].enable = true;
-            chnState[i].mainLoop = mainLoop;
-            pthread_mutex_unlock(&mutex);
-            return i;
-        }
-    }
-    pthread_mutex_unlock(&mutex);
-    return -1;
-}
-
 void request_idr(void) {
-    char index = -1;
+    signed char index = -1;
     pthread_mutex_lock(&mutex);
     for (int i = 0; i < chnCount; i++) {
         if (!chnState[i].enable) continue;
@@ -137,7 +130,21 @@ void set_grayscale(bool active) {
     pthread_mutex_unlock(&mutex);
 }
 
-int create_vpss_chn(char index, short width, short height, char framerate, char jpeg) {
+int take_next_free_channel(bool mainLoop) {
+    pthread_mutex_lock(&mutex);
+    for (int i = 0; i < chnCount; i++) {
+        if (!chnState[i].enable) {
+            chnState[i].enable = true;
+            chnState[i].mainLoop = mainLoop;
+            pthread_mutex_unlock(&mutex);
+            return i;
+        }
+    }
+    pthread_mutex_unlock(&mutex);
+    return -1;
+}
+
+int create_channel(char index, short width, short height, char framerate, char jpeg) {
     switch (plat) {
 #if defined(__arm__)
         case HAL_PLATFORM_GM:  return EXIT_SUCCESS;
@@ -158,13 +165,13 @@ int create_vpss_chn(char index, short width, short height, char framerate, char 
     }
 }
 
-int bind_vpss_venc(char index, char framerate, char jpeg) {
+int bind_channel(char index, char framerate, char jpeg) {
     switch (plat) {
 #if defined(__arm__)
         case HAL_PLATFORM_GM:  return gm_channel_bind(index);
         case HAL_PLATFORM_I6:  return i6_channel_bind(index, framerate);
-        case HAL_PLATFORM_I6C: return i6c_channel_bind(index, framerate, jpeg);
-        case HAL_PLATFORM_I6F: return i6f_channel_bind(index, framerate, jpeg);
+        case HAL_PLATFORM_I6C: return i6c_channel_bind(index, framerate);
+        case HAL_PLATFORM_I6F: return i6f_channel_bind(index, framerate);
         case HAL_PLATFORM_V3:  return v3_channel_bind(index);
         case HAL_PLATFORM_V4:  return v4_channel_bind(index);
 #elif defined(__mips__)
@@ -173,13 +180,13 @@ int bind_vpss_venc(char index, char framerate, char jpeg) {
     }
 }
 
-int unbind_vpss_venc(char index, char jpeg) {
+int unbind_channel(char index, char jpeg) {
     switch (plat) {
 #if defined(__arm__)
         case HAL_PLATFORM_GM:  return gm_channel_unbind(index);
         case HAL_PLATFORM_I6:  return i6_channel_unbind(index);
-        case HAL_PLATFORM_I6C: return i6c_channel_unbind(index, jpeg);
-        case HAL_PLATFORM_I6F: return i6f_channel_unbind(index, jpeg);
+        case HAL_PLATFORM_I6C: return i6c_channel_unbind(index);
+        case HAL_PLATFORM_I6F: return i6f_channel_unbind(index);
         case HAL_PLATFORM_V3:  return v3_channel_unbind(index);
         case HAL_PLATFORM_V4:  return v4_channel_unbind(index);
 #elif defined(__mips__)
@@ -188,7 +195,7 @@ int unbind_vpss_venc(char index, char jpeg) {
     }
 }
 
-int disable_venc_chn(char index, char jpeg) {
+int disable_video(char index, char jpeg) {
     switch (plat) {
 #if defined(__arm__)
         case HAL_PLATFORM_GM:  return gm_video_destroy(index);
@@ -227,14 +234,29 @@ int start_sdk(void) {
 
     switch (plat) {
 #if defined(__arm__)
-        case HAL_PLATFORM_GM:  gm_venc_cb = save_video_stream; break;
-        case HAL_PLATFORM_I6:  i6_venc_cb = save_video_stream; break;
-        case HAL_PLATFORM_I6C: i6c_venc_cb = save_video_stream; break;
-        case HAL_PLATFORM_I6F: i6f_venc_cb = save_video_stream; break;
-        case HAL_PLATFORM_V3:  v3_venc_cb = save_video_stream; break;
-        case HAL_PLATFORM_V4:  v4_venc_cb = save_video_stream; break;
+        case HAL_PLATFORM_GM:  gm_vid_cb = save_video_stream; break;
+        case HAL_PLATFORM_I6:
+            i6_aud_cb = save_audio_stream;
+            i6_vid_cb = save_video_stream;
+            break;
+        case HAL_PLATFORM_I6C:
+            i6c_aud_cb = save_audio_stream;
+            i6c_vid_cb = save_video_stream;
+            break;
+        case HAL_PLATFORM_I6F:
+            i6f_aud_cb = save_audio_stream;
+            i6f_vid_cb = save_video_stream;
+            break;
+        case HAL_PLATFORM_V3:
+            v3_aud_cb = save_audio_stream;
+            v3_vid_cb = save_video_stream;
+            break;
+        case HAL_PLATFORM_V4:
+            v4_aud_cb = save_audio_stream;
+            v4_vid_cb = save_video_stream;
+            break;
 #elif defined(__mips__)
-        case HAL_PLATFORM_T31: t31_venc_cb = save_video_stream; break;
+        case HAL_PLATFORM_T31: t31_vid_cb = save_video_stream; break;
 #endif
     }
 
@@ -306,7 +328,7 @@ int start_sdk(void) {
     if (app_config.mp4_enable) {
         int index = take_next_free_channel(true);
 
-        if (ret = create_vpss_chn(index, app_config.mp4_width, 
+        if (ret = create_channel(index, app_config.mp4_width, 
             app_config.mp4_height, app_config.mp4_fps, 0)) {
             fprintf(stderr, 
                 "Creating channel %d failed with %#x!\n%s\n", 
@@ -350,7 +372,7 @@ int start_sdk(void) {
             set_mp4_config(app_config.mp4_width, app_config.mp4_height, app_config.mp4_fps);
         }
 
-        if (ret = bind_vpss_venc(index, app_config.mp4_fps, 0)) {
+        if (ret = bind_channel(index, app_config.mp4_fps, 0)) {
             fprintf(stderr, 
                 "Binding channel %d failed with %#x!\n%s\n",
                 index, ret, errstr(ret));
@@ -361,7 +383,7 @@ int start_sdk(void) {
     if (app_config.mjpeg_enable) {
         int index = take_next_free_channel(true);
     
-        if (ret = create_vpss_chn(index, app_config.mjpeg_width, 
+        if (ret = create_channel(index, app_config.mjpeg_width, 
             app_config.mjpeg_height, app_config.mjpeg_fps, 1)) {
             fprintf(stderr, 
                 "Creating channel %d failed with %#x!\n%s\n", 
@@ -400,7 +422,7 @@ int start_sdk(void) {
             }
         }
 
-        if (ret = bind_vpss_venc(index, app_config.mjpeg_fps, 1)) {
+        if (ret = bind_channel(index, app_config.mjpeg_fps, 1)) {
             fprintf(stderr, 
                 "Binding channel %d failed with %#x!\n%s\n",
                 index, ret, errstr(ret));
@@ -426,7 +448,7 @@ int start_sdk(void) {
             fprintf(stderr, "Can't set stack size %zu\n", new_stacksize);
         }
         if (pthread_create(
-                     &vencPid, &thread_attr, (void *(*)(void *))venc_thread, NULL)) {
+                     &vidPid, &thread_attr, (void *(*)(void *))vid_thread, NULL)) {
             fprintf(stderr, "Starting the video encoding thread failed!\n");
             return EXIT_FAILURE;
         }
@@ -453,7 +475,7 @@ int start_sdk(void) {
 }
 
 int stop_sdk(void) {
-    pthread_join(vencPid, NULL);
+    pthread_join(vidPid, NULL);
 
     if (app_config.jpeg_enable)
         jpeg_deinit();

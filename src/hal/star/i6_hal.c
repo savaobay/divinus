@@ -13,7 +13,7 @@ i6_vpe_impl  i6_vpe;
 
 hal_chnstate i6_state[I6_VENC_CHN_NUM] = {0};
 int (*i6_aud_cb)(hal_audframe*);
-int (*i6_venc_cb)(char, hal_vidstream*);
+int (*i6_vid_cb)(char, hal_vidstream*);
 
 i6_snr_pad _i6_snr_pad;
 i6_snr_plane _i6_snr_plane;
@@ -87,9 +87,11 @@ int i6_audio_init(void)
         config.packNumPerFrm = 640;
         config.codecChnNum = 1;
         config.chnNum = 1;
-        config.i2s.clock = I6_AUD_CLK_OFF;
         config.i2s.leftJustOn = 0;
+        config.i2s.clock = I6_AUD_CLK_OFF;
         config.i2s.syncRxClkOn = 1;
+        config.i2s.tdmSlotNum = 1;
+        config.i2s.bit24On = 0;
         if (ret = i6_aud.fnSetDeviceConfig(_i6_aud_dev, &config))
             return ret;
     }
@@ -98,8 +100,6 @@ int i6_audio_init(void)
     
     if (ret = i6_aud.fnEnableChannel(_i6_aud_dev, _i6_aud_chn))
         return ret;
-    if (ret = i6_aud.fnSetVolume(_i6_aud_dev, _i6_aud_chn, 0xF6))
-            return ret;
 
     return EXIT_SUCCESS;
 }
@@ -476,12 +476,12 @@ int i6_video_create(char index, hal_vidconfig *config)
                 I6_ERROR("MJPEG encoder can only support CBR or fixed QP modes!");
         }
 
-        channel.attrib.mjpg.maxHeight = ALIGN_BACK(config->height, 16);
-        channel.attrib.mjpg.maxWidth = ALIGN_BACK(config->width, 16);
-        channel.attrib.mjpg.bufSize = config->width * config->height;
+        channel.attrib.mjpg.maxHeight = ALIGN_UP(config->height, 16);
+        channel.attrib.mjpg.maxWidth = ALIGN_UP(config->width, 16);
+        channel.attrib.mjpg.bufSize = ALIGN_UP(config->width, 16) * ALIGN_UP(config->height, 16);
         channel.attrib.mjpg.byFrame = 1;
-        channel.attrib.mjpg.height = ALIGN_BACK(config->height, 16);
-        channel.attrib.mjpg.width = ALIGN_BACK(config->width, 16);
+        channel.attrib.mjpg.height = ALIGN_UP(config->height, 16);
+        channel.attrib.mjpg.width = ALIGN_UP(config->width, 16);
         channel.attrib.mjpg.dcfThumbs = 0;
         channel.attrib.mjpg.markPerRow = 0;
 
@@ -553,13 +553,13 @@ int i6_video_create(char index, hal_vidconfig *config)
                 I6_ERROR("H.264 encoder does not support this mode!");
         }
     } else I6_ERROR("This codec is not supported by the hardware!");
-    attrib->maxHeight = ALIGN_BACK(config->height, 16);
-    attrib->maxWidth = ALIGN_BACK(config->width, 16);
+    attrib->maxHeight = config->height;
+    attrib->maxWidth = config->width;
     attrib->bufSize = config->height * config->width;
     attrib->profile = config->profile;
     attrib->byFrame = 1;
-    attrib->height = ALIGN_BACK(config->height, 16);
-    attrib->width = ALIGN_BACK(config->width, 16);
+    attrib->height = config->height;
+    attrib->width = config->width;
     attrib->bFrameNum = 0;
     attrib->refNum = 1;
 attach:
@@ -802,7 +802,7 @@ void *i6_video_thread(void)
                         break;
                     }
 
-                    if (i6_venc_cb) {
+                    if (i6_vid_cb) {
                         hal_vidstream outStrm;
                         hal_vidpack outPack[stream.count];
                         outStrm.count = stream.count;
@@ -838,7 +838,7 @@ void *i6_video_thread(void)
                             outPack[j].timestamp = pack->timestamp;
                         }
                         outStrm.pack = outPack;
-                        (*i6_venc_cb)(i, &outStrm);
+                        (*i6_vid_cb)(i, &outStrm);
                     }
 
                     if (ret = i6_venc.fnFreeStream(i, &stream)) {
