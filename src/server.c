@@ -58,9 +58,7 @@ int send_to_client(int i, char *buf, ssize_t size) {
     return 0;
 }
 
-void send_h26x_to_client(unsigned char index, const void *p) {
-    const hal_vidstream *stream = (const hal_vidstream *)p;
-
+void send_h26x_to_client(char index, hal_vidstream *stream) {
     for (unsigned int i = 0; i < stream->count; ++i) {
         hal_vidpack *pack = &stream->pack[i];
         unsigned int pack_len = pack->length - pack->offset;
@@ -105,8 +103,7 @@ void send_h26x_to_client(unsigned char index, const void *p) {
     }
 }
 
-void send_mp4_to_client(unsigned char index, const void *p, char isH265) {
-    const hal_vidstream *stream = (const hal_vidstream *)p;
+void send_mp4_to_client(char index, hal_vidstream *stream, char isH265) {
 
     for (unsigned int i = 0; i < stream->count; ++i) {
         hal_vidpack *pack = &stream->pack[i];
@@ -192,7 +189,7 @@ void send_mp4_to_client(unsigned char index, const void *p, char isH265) {
     }
 }
 
-void send_mjpeg(unsigned char index, char *buf, ssize_t size) {
+void send_mjpeg(char index, char *buf, ssize_t size) {
     static char prefix_buf[128];
     ssize_t prefix_size = sprintf(
         prefix_buf,
@@ -216,7 +213,7 @@ void send_mjpeg(unsigned char index, char *buf, ssize_t size) {
     pthread_mutex_unlock(&client_fds_mutex);
 }
 
-void send_jpeg(unsigned char index, char *buf, ssize_t size) {
+void send_jpeg(char index, char *buf, ssize_t size) {
     static char prefix_buf[128];
     ssize_t prefix_size = sprintf(
         prefix_buf,
@@ -441,12 +438,21 @@ char *request_header(const char *name)
 header_t *request_headers(void) { return reqhdr; }
 
 void parse_request(int client_fd, char *request) {
+    struct sockaddr_in client_sock;
+    socklen_t client_sock_len = sizeof(client_sock);
+    memset(&client_sock, 0, client_sock_len);
+
+    getpeername(client_fd, 
+        (struct sockaddr *)&client_sock, &client_sock_len);
+
     char *state = NULL;
     method = strtok_r(request, " \t\r\n", &state);
     uri = strtok_r(NULL, " \t", &state);
     prot = strtok_r(NULL, " \t\r\n", &state);
 
-    fprintf(stderr, tag "\x1b[32m New request: (%s) %s\x1b[0m\n", method, uri);
+    fprintf(stderr, tag "\x1b[32mNew request: (%s) %s\n"
+        "         Received from: %s\x1b[0m\n",
+        method, uri, inet_ntoa(client_sock.sin_addr));
 
     if (query = strchr(uri, '?'))
         *query++ = '\0';
@@ -465,7 +471,9 @@ void parse_request(int client_fd, char *request) {
         while (*v && *v == ' ' && v++);
         h->name = k;
         h++->value = v;
+#ifdef DEBUG
         fprintf(stderr, "         (H) %s: %s\n", k, v);
+#endif
         e = v + 1 + strlen(v);
         if (e[1] == '\r' && e[2] == '\n')
             break;
@@ -496,7 +504,7 @@ void *server_thread(void *vargp) {
         printf(tag "setsockopt(SO_REUSEADDR) failed");
         fflush(stdout);
     }
-    struct sockaddr_in server;
+    struct sockaddr_in server, client;
     server.sin_family = AF_INET;
     server.sin_port = htons(app_config.web_port);
     server.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -721,12 +729,16 @@ void *server_thread(void *vargp) {
                         }
                     }
                 }
+
+                jpeg_deinit();
+                jpeg_init();
+
                 respLen = sprintf(response,
                     "HTTP/1.1 200 OK\r\n" \
                     "Content-Type: application/json;charset=UTF-8\r\n" \
                     "Connection: close\r\n" \
                     "\r\n" \
-                    "{\"width\":%d,\"height\":%d,\"fps\":%d,\"qfactor\":%d}", 
+                    "{\"width\":%d,\"height\":%d,\"qfactor\":%d}", 
                     app_config.jpeg_width, app_config.jpeg_height, app_config.jpeg_qfactor);
             } else {
                 respLen = sprintf(response,
@@ -775,6 +787,10 @@ void *server_thread(void *vargp) {
                         }
                     }
                 }
+
+                disable_mjpeg();
+                enable_mjpeg();
+
                 char mode[5] = "\0";
                 switch (app_config.mjpeg_mode) {
                     case HAL_VIDMODE_CBR: strcpy(mode, "CBR"); break;
@@ -856,6 +872,10 @@ void *server_thread(void *vargp) {
                         }
                     }
                 }
+
+                disable_mp4();
+                enable_mp4();
+
                 char h265[6] = "false";
                 char mode[5] = "\0";
                 char profile[3] = "\0";

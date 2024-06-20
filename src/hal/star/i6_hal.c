@@ -83,14 +83,14 @@ int i6_audio_init(void)
         config.bit24On = 0;
         config.intf = I6_AUD_INTF_I2S_SLAVE;
         config.sound = I6_AUD_SND_MONO;
-        config.frmNum = 40;
-        config.packNumPerFrm = 640;
-        config.codecChnNum = 1;
+        config.frmNum = 0;
+        config.packNumPerFrm = config.rate / 16;
+        config.codecChnNum = 0;
         config.chnNum = 1;
         config.i2s.leftJustOn = 0;
         config.i2s.clock = I6_AUD_CLK_OFF;
         config.i2s.syncRxClkOn = 1;
-        config.i2s.tdmSlotNum = 1;
+        config.i2s.tdmSlotNum = 0;
         config.i2s.bit24On = 0;
         if (ret = i6_aud.fnSetDeviceConfig(_i6_aud_dev, &config))
             return ret;
@@ -110,15 +110,16 @@ void *i6_audio_thread(void)
 
     i6_aud_frm frame;
     i6_aud_efrm echoFrame;
+    memset(&frame, 0, sizeof(frame));
+    memset(&echoFrame, 0, sizeof(echoFrame));
 
     while (keepRunning) {
-        ret = i6_aud.fnGetFrame(_i6_aud_dev, _i6_aud_chn, 
-            &frame, &echoFrame, 100);
-        if (ret && ret != 0xA004200E) {
+        if (ret = i6_aud.fnGetFrame(_i6_aud_dev, _i6_aud_chn, 
+            &frame, &echoFrame, 100)) {
             fprintf(stderr, "[i6_aud] Getting the frame failed "
                 "with %#x!\n", ret);
-            break;
-        } else continue;
+            continue;
+        }
 
         if (i6_aud_cb) {
             hal_audframe outFrame;
@@ -579,6 +580,7 @@ int i6_video_destroy(char index)
 {
     int ret;
 
+    i6_state[index].enable = 0;
     i6_state[index].payload = HAL_VIDCODEC_UNSPEC;
 
     i6_venc.fnStopReceiving(index);

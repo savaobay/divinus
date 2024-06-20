@@ -90,7 +90,7 @@ int i6c_audio_init(void)
             return ret;
     }
     {
-        i6c_aud_input input = I6C_AUD_INPUT_I2S_A_01;
+        i6c_aud_input input[] = { I6C_AUD_INPUT_I2S_A_01 };
         i6c_aud_i2s config;
         config.intf = I6C_AUD_INTF_I2S_SLAVE;
         config.bit = I6C_AUD_BIT_16;
@@ -98,16 +98,16 @@ int i6c_audio_init(void)
         config.rate = 48000;
         config.clock = I6C_AUD_CLK_OFF;
         config.syncRxClkOn = 1;
-        config.tdmSlotNum = 1;
-        if (ret = i6c_aud.fnSetI2SConfig(input, &config))
+        config.tdmSlotNum = 0;
+        if (ret = i6c_aud.fnSetI2SConfig(input[0], &config))
             return ret;
-        if (ret = i6c_aud.fnAttachToDevice(_i6c_aud_dev, &input, 1))
+        if (ret = i6c_aud.fnAttachToDevice(_i6c_aud_dev, input, 1))
             return ret;
     }
 
     {
         char gain[1] = { 0xF6 };
-        if (ret = i6c_aud.fnSetGain(_i6c_aud_dev, _i6c_aud_chn, (char*)&gain, 1))
+        if (ret = i6c_aud.fnSetGain(_i6c_aud_dev, _i6c_aud_chn, gain, 1))
             return ret;
     }
     if (ret = i6c_aud.fnEnableGroup(_i6c_aud_dev, _i6c_aud_chn))
@@ -121,15 +121,16 @@ void *i6c_audio_thread(void)
     int ret;
 
     i6c_aud_frm frame, echoFrame;
+    memset(&frame, 0, sizeof(frame));
+    memset(&echoFrame, 0, sizeof(echoFrame));
 
     while (keepRunning) {
-        ret = i6c_aud.fnGetFrame(_i6c_aud_dev, _i6c_aud_chn, 
-            &frame, &echoFrame, 100);
-        if (ret && ret != 0xA004200E) {
+        if (ret = i6c_aud.fnGetFrame(_i6c_aud_dev, _i6c_aud_chn, 
+            &frame, &echoFrame, 100)) {
             fprintf(stderr, "[i6c_aud] Getting the frame failed "
                 "with %#x!\n", ret);
-            break;
-        } else continue;
+            continue;
+        }
 
         if (i6c_aud_cb) {
             hal_audframe outFrame;
@@ -673,6 +674,7 @@ int i6c_video_destroy(char index)
 {
     int ret;
 
+    i6c_state[index].enable = 0;
     i6c_state[index].payload = HAL_VIDCODEC_UNSPEC;
 
     i6c_venc.fnStopReceiving(_i6c_venc_dev[index], index);
