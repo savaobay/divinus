@@ -17,35 +17,37 @@ bool night_mode_is_enabled() { return night_mode; }
 void ircut_on() {
     gpio_write(app_config.ir_cut_pin1, false);
     gpio_write(app_config.ir_cut_pin2, true);
-    usleep(app_config.pin_switch_delay_us);
+    usleep(app_config.pin_switch_delay_us * 100);
     gpio_write(app_config.ir_cut_pin1, false);
     gpio_write(app_config.ir_cut_pin2, false);
-    set_grayscale(true);
 }
 
 void ircut_off() {
     gpio_write(app_config.ir_cut_pin1, true);
     gpio_write(app_config.ir_cut_pin2, false);
-    usleep(app_config.pin_switch_delay_us);
+    usleep(app_config.pin_switch_delay_us * 100);
     gpio_write(app_config.ir_cut_pin1, false);
     gpio_write(app_config.ir_cut_pin2, false);
-    set_grayscale(false);
 }
 
 void set_night_mode(bool night) {
+    if (night == night_mode) return;
     if (night) {
-        printf(tag "Change mode to NIGHT\n");
+        printf(tag "Changing mode to NIGHT\n");
         ircut_off();
         set_grayscale(true);
     } else {
-        printf(tag "Change mode to DAY\n");
+        printf(tag "Changing mode to DAY\n");
         ircut_on();
         set_grayscale(false);
     }
+    night_mode = night;
 }
 
 void *night_thread(void) {
-    usleep(1000);
+    gpio_init();
+    usleep(10000);
+
     set_night_mode(night_mode);
 
     if (app_config.adc_device[0]) {
@@ -57,9 +59,10 @@ void *night_thread(void) {
             printf(tag "Could not open the ADC virtual device!\n");
             return NULL;
         }
+        struct timeval tv = { 
+                .tv_sec = app_config.check_interval_s % 12,
+                .tv_usec = app_config.check_interval_s / 12 * 1000000 };
         while (keepRunning) {
-            struct timeval tv = { 
-                .tv_sec = app_config.check_interval_s, .tv_usec = 0 };
             FD_ZERO(&adc_fds);
             FD_SET(adc_fd, &adc_fds);
             select(adc_fd + 1, &adc_fds, NULL, NULL, &tv);
@@ -70,16 +73,14 @@ void *night_thread(void) {
             cnt++;
             if (cnt == 12) {
                 tmp /= cnt;
-                if (tmp >= app_config.adc_threshold)
-                    night_mode = true;
-                else
-                    night_mode = false;
-                set_night_mode(night_mode);
+                set_night_mode(tmp >= app_config.adc_threshold);
                 cnt = tmp = 0;
             }
             usleep(250000);
         }
         if (adc_fd) close(adc_fd);
+    } else if (app_config.ir_sensor_pin == 999) {
+        while (keepRunning) sleep(1);
     } else {
         while (keepRunning) {
             bool state = false;
@@ -87,13 +88,12 @@ void *night_thread(void) {
                 sleep(app_config.check_interval_s);
                 continue;
             }
-            if (night_mode != state) {
-                night_mode = state;
-                set_night_mode(night_mode);
-            }
+            set_night_mode(night_mode);
             sleep(app_config.check_interval_s);
         }
     }
+    usleep(10000);
+    gpio_deinit();
     printf(tag "Night mode thread is closing...\n");
 }
 

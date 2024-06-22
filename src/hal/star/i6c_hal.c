@@ -83,35 +83,44 @@ int i6c_audio_init(void)
         i6c_aud_cnf config;
         config.reserved = 0;
         config.sound = I6C_AUD_SND_MONO;
-        config.rate = 48000;
-        config.periodSize = 0x600;
+        config.rate = 8000;
+        config.periodSize = 0x400;
         config.interleavedOn = 0;
         if (ret = i6c_aud.fnEnableDevice(_i6c_aud_dev, &config))
             return ret;
     }
     {
-        i6c_aud_input input[] = { I6C_AUD_INPUT_I2S_A_01 };
+        i6c_aud_input input[] = { I6C_AUD_INPUT_ADC_AB };
         i6c_aud_i2s config;
-        config.intf = I6C_AUD_INTF_I2S_SLAVE;
+        /*config.intf = I6C_AUD_INTF_I2S_SLAVE;
         config.bit = I6C_AUD_BIT_16;
         config.leftJustOn = 0;
-        config.rate = 48000;
+        config.rate = 8000;
         config.clock = I6C_AUD_CLK_OFF;
-        config.syncRxClkOn = 1;
-        config.tdmSlotNum = 0;
-        if (ret = i6c_aud.fnSetI2SConfig(input[0], &config))
+        config.syncRxClkOn = 0;
+        config.tdmSlotNum = 0;*/
+        char inputSize = sizeof(input) / sizeof(*input);
+        /*for (char i = 0; i < inputSize; i++)
+            if (ret = i6c_aud.fnSetI2SConfig(input[i], &config))
+                return ret;*/
+        if (ret = i6c_aud.fnAttachToDevice(_i6c_aud_dev, input, inputSize))
             return ret;
-        if (ret = i6c_aud.fnAttachToDevice(_i6c_aud_dev, input, 1))
+    }
+
+    if (ret = i6c_aud.fnEnableGroup(_i6c_aud_dev, _i6c_aud_chn))
+        return ret;
+    {
+        char gain[1] = { 13 };
+        if (ret = i6c_aud.fnSetGain(_i6c_aud_dev, _i6c_aud_chn, gain, 1))
             return ret;
     }
 
     {
-        char gain[1] = { 0xF6 };
-        if (ret = i6c_aud.fnSetGain(_i6c_aud_dev, _i6c_aud_chn, gain, 1))
+        i6c_sys_bind bind = { .module = I6C_SYS_MOD_AI, 
+            .device = _i6c_aud_dev, .channel = _i6c_aud_chn };
+        if (ret = i6c_sys.fnSetOutputDepth(0, &bind, 2, 4))
             return ret;
     }
-    if (ret = i6c_aud.fnEnableGroup(_i6c_aud_dev, _i6c_aud_chn))
-        return ret;
 
     return EXIT_SUCCESS;
 }
@@ -120,13 +129,12 @@ void *i6c_audio_thread(void)
 {
     int ret;
 
-    i6c_aud_frm frame, echoFrame;
+    i6c_aud_frm frame;
     memset(&frame, 0, sizeof(frame));
-    memset(&echoFrame, 0, sizeof(echoFrame));
 
     while (keepRunning) {
         if (ret = i6c_aud.fnGetFrame(_i6c_aud_dev, _i6c_aud_chn, 
-            &frame, &echoFrame, 100)) {
+            &frame, NULL, 128)) {
             fprintf(stderr, "[i6c_aud] Getting the frame failed "
                 "with %#x!\n", ret);
             continue;
@@ -134,11 +142,16 @@ void *i6c_audio_thread(void)
 
         if (i6c_aud_cb) {
             hal_audframe outFrame;
+            outFrame.channelCnt = 1;
+            outFrame.data[0] = frame.addr[0];
+            outFrame.length[0] = frame.length[0];
+            outFrame.seq = frame.sequence;
+            outFrame.timestamp = frame.timestamp;
             (i6c_aud_cb)(&outFrame);
         }
 
         if (ret = i6c_aud.fnFreeFrame(_i6c_aud_dev, _i6c_aud_chn,
-            &frame, &echoFrame)) {
+            &frame, NULL)) {
             fprintf(stderr, "[i6c_aud] Releasing the frame failed"
                 " with %#x!\n", ret);
         }
