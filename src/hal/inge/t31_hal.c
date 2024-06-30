@@ -57,17 +57,17 @@ void t31_audio_deinit(void)
     t31_aud.fnDisableDevice(_t31_aud_dev);
 }
 
-int t31_audio_init(void)
+int t31_audio_init(int samplerate)
 {
     int ret;
 
     {
         t31_aud_cnf config;
-        config.rate = 48000;
+        config.rate = samplerate;
         config.bit = T31_AUD_BIT_16;
         config.mode = T31_AUD_SND_MONO;
         config.frmNum = 40;
-        config.packNumPerFrm = 640;
+        config.packNumPerFrm = samplerate / 25;
         config.chnNum = 1;
         if (ret = t31_aud.fnSetDeviceConfig(_t31_aud_dev, &config))
             return ret;
@@ -75,15 +75,57 @@ int t31_audio_init(void)
     if (ret = t31_aud.fnEnableDevice(_t31_aud_dev))
         return ret;
     
+    {
+        t31_aud_chn config;
+        config.usrFrmDepth = 40;
+        if (ret = t31_aud.fnSetChannelConfig(_t31_aud_dev, _t31_aud_chn, &config))
+            return ret;
+    }
     if (ret = t31_aud.fnEnableChannel(_t31_aud_dev, _t31_aud_chn))
         return ret;
-    {
-        int dbLevel = 0xF6;
-        if (ret = t31_aud.fnSetVolume(_t31_aud_dev, _t31_aud_chn, &dbLevel))
-                return ret;
-    }
+
+    if (ret = t31_aud.fnSetGain(_t31_aud_dev, _t31_aud_chn, 28))
+        return ret;
+
+    if (ret = t31_aud.fnSetVolume(_t31_aud_dev, _t31_aud_chn, 60))
+        return ret;
     
     return EXIT_SUCCESS;
+}
+
+void *t31_audio_thread(void)
+{
+    int ret;
+
+    t31_aud_frm frame;
+    memset(&frame, 0, sizeof(frame));
+
+    while (keepRunning) {
+        if (ret = t31_aud.fnPollFrame(_t31_aud_dev, _t31_aud_chn, 1000))
+            continue;
+
+        if (ret = t31_aud.fnGetFrame(_t31_aud_dev, _t31_aud_chn, &frame, 1)) {
+            fprintf(stderr, "[t31_aud] Getting the frame failed "
+                "with %#x!\n", ret);
+            continue;
+        }
+
+        if (t31_aud_cb) {
+            hal_audframe outFrame;
+            outFrame.channelCnt = 1;
+            outFrame.data[0] = (char*)frame.addr;
+            outFrame.length[0] = frame.length;
+            outFrame.seq = frame.sequence;
+            outFrame.timestamp = frame.timestamp;
+            (t31_aud_cb)(&outFrame);
+        }
+
+        if (ret = t31_aud.fnFreeFrame(_t31_aud_dev, _t31_aud_chn, &frame)) {
+            fprintf(stderr, "[t31_aud] Releasing the frame failed"
+                " with %#x!\n", ret);
+        }
+    }
+    fprintf(stderr, "[t31_aud] Shutting down encoding thread...\n");
 }
 
 int t31_channel_bind(char index)

@@ -17,9 +17,43 @@ pthread_t audPid = 0;
 pthread_t ispPid = 0;
 pthread_t vidPid = 0;
 
+unsigned char *mp3Buf;
+shine_config_t mp3Cnf;
+shine_t mp3Enc;
+unsigned int mp3Samp;
+
+unsigned int mp3Pos;
+short mp3Src[SHINE_MAX_SAMPLES];
+
 int save_audio_stream(hal_audframe *frame) {
     int ret = EXIT_SUCCESS;
 
+#ifdef DEBUG
+    printf("[audio] data:%p - %02x %02x %02x %02x %02x %02x %02x %02x\n", 
+        frame->data, frame->data[0][0], frame->data[0][1], frame->data[0][2], frame->data[0][3],
+        frame->data[0][4], frame->data[0][5], frame->data[0][6], frame->data[0][7]);
+    printf("        len:%d\n", frame->length[0]);
+    printf("        seq:%d\n", frame->seq);
+    printf("        ts:%d\n", frame->timestamp);
+#endif
+
+    send_pcm_to_client(frame);
+
+    unsigned int mp3Len = frame->length[0] / 2;
+    unsigned int mp3Orig = mp3Len;
+    short *mp3Pack = (short*)frame->data[0];
+
+    while (mp3Pos + mp3Len >= mp3Samp) {
+        memcpy(mp3Src + mp3Pos, mp3Pack + mp3Orig - mp3Len, (mp3Samp - mp3Pos) * 2);
+        mp3Buf = shine_encode_buffer_interleaved(mp3Enc, mp3Src, &ret);
+        send_mp3_to_client(mp3Buf, ret);
+        mp3Len -= (mp3Samp - mp3Pos);
+        mp3Pos = 0;
+    }
+
+    memcpy(mp3Src + mp3Pos, mp3Pack + mp3Orig - mp3Len, mp3Len * 2);
+    mp3Pos += mp3Len;
+    
     return ret;
 }
 
@@ -416,7 +450,10 @@ int start_sdk(void) {
             v4_vid_cb = save_video_stream;
             break;
 #elif defined(__mips__)
-        case HAL_PLATFORM_T31: t31_vid_cb = save_video_stream; break;
+        case HAL_PLATFORM_T31:
+            t31_aud_cb = save_audio_stream;
+            t31_vid_cb = save_video_stream;
+            break;
 #endif
     }
 
@@ -436,6 +473,60 @@ int start_sdk(void) {
         fprintf(stderr, "System initialization failed with %#x!\n%s\n",
             ret, errstr(ret));
         return EXIT_FAILURE;
+    }
+
+    if (app_config.audio_enable) switch (plat) {
+#if defined(__arm__)
+        case HAL_PLATFORM_I6:  ret = i6_audio_init(app_config.audio_srate); break;
+        case HAL_PLATFORM_I6C: ret = i6c_audio_init(app_config.audio_srate); break;
+        case HAL_PLATFORM_I6F: ret = i6f_audio_init(app_config.audio_srate); break;
+        case HAL_PLATFORM_V3:  ret = v3_audio_init(app_config.audio_srate); break;
+        case HAL_PLATFORM_V4:  ret = v4_audio_init(app_config.audio_srate); break;
+#elif defined(__mips__)
+        case HAL_PLATFORM_T31: ret = t31_audio_init(app_config.audio_srate); break;
+#endif
+    }
+    if (ret) {
+        fprintf(stderr, "Audio initialization failed with %#x!\n%s\n",
+            ret, errstr(ret));
+        return EXIT_FAILURE;
+    }
+
+    if (app_config.audio_enable) {
+        if (shine_check_config(app_config.audio_srate, 128) < 0)
+            fprintf(stderr, "Unsupported samplerate/bitrate configuration!\n");
+        else {
+            mp3Cnf.mpeg.mode = MONO;
+            mp3Cnf.mpeg.bitr = 128;
+            mp3Cnf.mpeg.emph = NONE;
+            mp3Cnf.mpeg.copyright = 0;
+            mp3Cnf.mpeg.original = 1;
+            mp3Cnf.wave.channels = PCM_MONO;
+            mp3Cnf.wave.samplerate = app_config.audio_srate;
+            if (!(mp3Enc = shine_initialise(&mp3Cnf))) {
+                fprintf(stderr, "MP3 encoder initialization failed!\n");
+                return EXIT_FAILURE;
+            }
+            mp3Samp = shine_samples_per_pass(mp3Enc);
+        }
+
+        pthread_attr_t thread_attr;
+        pthread_attr_init(&thread_attr);
+        size_t stacksize;
+        pthread_attr_getstacksize(&thread_attr, &stacksize);
+        size_t new_stacksize = app_config.venc_stream_thread_stack_size;
+        if (pthread_attr_setstacksize(&thread_attr, new_stacksize)) {
+            fprintf(stderr, "Can't set stack size %zu\n", new_stacksize);
+        }
+        if (pthread_create(
+                     &audPid, &thread_attr, (void *(*)(void *))aud_thread, NULL)) {
+            fprintf(stderr, "Starting the audio encoding thread failed!\n");
+            return EXIT_FAILURE;
+        }
+        if (pthread_attr_setstacksize(&thread_attr, stacksize)) {
+            fprintf(stderr, "Can't set stack size %zu\n", stacksize);
+        }
+        pthread_attr_destroy(&thread_attr);
     }
 
     short width = MAX(app_config.mp4_width, app_config.mjpeg_width);
@@ -577,6 +668,11 @@ int stop_sdk(void) {
 #endif
     }
 
+    if (app_config.audio_enable) {
+        pthread_join(audPid, NULL);
+        shine_close(mp3Enc);
+    }
+
     if (isp_thread)
         pthread_join(ispPid, NULL);
 
@@ -590,6 +686,18 @@ int stop_sdk(void) {
         case HAL_PLATFORM_V4:  v4_system_deinit(); break;
 #elif defined(__mips__)
         case HAL_PLATFORM_T31: t31_system_deinit(); break;
+#endif
+    }
+
+    if (app_config.audio_enable) switch (plat) {
+#if defined(__arm__)
+        case HAL_PLATFORM_I6:  i6_audio_deinit(); break;
+        case HAL_PLATFORM_I6C: i6c_audio_deinit(); break;
+        case HAL_PLATFORM_I6F: i6f_audio_deinit(); break;
+        case HAL_PLATFORM_V3:  v3_audio_deinit(); break;
+        case HAL_PLATFORM_V4:  v4_audio_deinit(); break;
+#elif defined(__mips__)
+        case HAL_PLATFORM_T31: t31_audio_deinit(); break;
 #endif
     }
 
