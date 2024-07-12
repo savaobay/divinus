@@ -17,30 +17,33 @@ enum BufError write_traf(
     const uint64_t base_data_offset, const uint64_t base_media_decode_time,
     const uint32_t default_sample_duration,
     const struct SampleInfo *samples_info, const uint32_t samples_info_len,
-    struct DataOffsetPos *data_offset);
+    struct DataOffsetPos *data_offset, char is_audio);
 enum BufError write_tfhd(
     struct BitBuf *ptr, const uint32_t sequence_number,
-    const uint64_t base_data_offset, const uint64_t base_media_decode_time,
-    const uint32_t default_sample_size, const uint32_t default_sample_duration,
-    const struct SampleInfo *samples_info, const uint32_t samples_info_len,
-    struct DataOffsetPos *data_offset);
+    const uint64_t base_data_offset, const uint32_t default_sample_size,
+    const uint32_t default_sample_duration, char is_audio);
 enum BufError
 write_tfdt(struct BitBuf *ptr, const uint64_t base_media_decode_time);
 enum BufError write_trun(
     struct BitBuf *ptr, const struct SampleInfo *samples_info,
-    const uint32_t samples_info_count, struct DataOffsetPos *data_offset);
+    const uint32_t samples_info_count, struct DataOffsetPos *data_offset, char is_audio);
 
 enum BufError
-write_mdat(struct BitBuf *ptr, const char *data, const uint32_t len) {
+write_mdat(struct BitBuf *ptr,
+    const char *data_vid, const uint32_t len_vid,
+    const char *data_aud, const uint32_t len_aud) {
     enum BufError err;
     uint32_t start_atom = ptr->offset;
     err = put_u32_be(ptr, 0);
     chk_err;
     err = put_str4(ptr, "mdat");
     chk_err;
-    err = put_u32_be(ptr, len);
+    
+    err = put_u32_be(ptr, len_vid);
     chk_err;
-    err = put(ptr, data, len);
+    err = put(ptr, data_vid, len_vid);
+    chk_err;
+    err = put(ptr, data_aud, len_aud);
     chk_err;
     err = put_u32_be_to_offset(ptr, start_atom, ptr->offset - start_atom);
     chk_err;
@@ -50,28 +53,53 @@ write_mdat(struct BitBuf *ptr, const char *data, const uint32_t len) {
 enum BufError write_moof(
     struct BitBuf *ptr, const uint32_t sequence_number,
     const uint64_t base_data_offset, const uint64_t base_media_decode_time,
-    const uint32_t default_sample_duration,
-    const struct SampleInfo *samples_info, const uint32_t samples_info_len) {
+    const uint32_t default_sample_duration, const struct SampleInfo *samples_vid,
+    const uint32_t samples_vid_len, const struct SampleInfo *samples_aud,
+    const uint32_t samples_aud_len) {
     enum BufError err;
     uint32_t start_atom = ptr->offset;
     err = put_u32_be(ptr, 0);
     chk_err;
     err = put_str4(ptr, "moof");
     chk_err;
+
     err = write_mfhd(ptr, sequence_number);
     chk_err;
+    struct DataOffsetPos vid_offset = {0};
+    struct DataOffsetPos aud_offset = {0};
 
-    struct DataOffsetPos data_offset;
-    data_offset.offset = 0;
-    err = write_traf(
-        ptr, sequence_number, base_data_offset, base_media_decode_time,
-        default_sample_duration, samples_info, samples_info_len, &data_offset);
-    chk_err;
-    if (data_offset.data_offset_present)
+    if (samples_vid_len && samples_vid[0].size) {
+        err = write_traf(
+            ptr, sequence_number, base_data_offset, base_media_decode_time,
+            default_sample_duration, samples_vid, samples_vid_len,
+            &vid_offset, 0);
+        chk_err;
+    }
+
+    if (samples_aud_len && samples_aud[0].size) {
+        err = write_traf(
+            ptr, sequence_number, base_data_offset, base_media_decode_time,
+            default_sample_duration, samples_aud, samples_aud_len,
+            &aud_offset, 1);
+        chk_err;
+        uint32_t vid_mdat = ptr->offset + 4 /*mdat size*/ + 4 /*mdat id*/;
+
+        if (aud_offset.data_offset_present) {
+            uint32_t vid_len = 0;
+            for (int i = 0; i < samples_vid_len; i++)
+                vid_len += samples_vid[i].size;
+            err = put_u32_be_to_offset(
+                ptr, aud_offset.offset, vid_mdat + vid_len);
+                chk_err;
+        }
+    }
+    
+    if (vid_offset.data_offset_present) {
         err = put_u32_be_to_offset(
-            ptr, data_offset.offset,
+            ptr, vid_offset.offset,
             ptr->offset + 4 /*mdat size*/ + 4 /*mdat id*/);
-    chk_err;
+        chk_err;
+    }
 
     err = put_u32_be_to_offset(ptr, start_atom, ptr->offset - start_atom);
     chk_err;
@@ -84,14 +112,18 @@ enum BufError write_mfhd(struct BitBuf *ptr, const uint32_t sequence_number) {
     err = put_u32_be(ptr, 0);
     chk_err;
     err = put_str4(ptr, "mfhd");
-    chk_err err = put_u8(ptr, 0); // 1 version
+    chk_err;
+
+    err = put_u8(ptr, 0);
+    chk_err; // 1 version
     err = put_u8(ptr, 0);
     chk_err;
+
     err = put_u8(ptr, 0);
     chk_err;
+    
     err = put_u8(ptr, 0);
-    chk_err;
-    // 3 flags
+    chk_err; // 3 flags
     pos_sequence_number = ptr->offset;
     err = put_u32_be(ptr, sequence_number);
     chk_err; // 4 sequence_number
@@ -105,21 +137,21 @@ enum BufError write_traf(
     const uint64_t base_data_offset, const uint64_t base_media_decode_time,
     const uint32_t default_sample_duration,
     const struct SampleInfo *samples_info, const uint32_t samples_info_len,
-    struct DataOffsetPos *data_offset) {
+    struct DataOffsetPos *data_offset, char is_audio) {
     enum BufError err;
     uint32_t start_atom = ptr->offset;
     err = put_u32_be(ptr, 0);
     chk_err;
     err = put_str4(ptr, "traf");
     chk_err;
+
     err = write_tfhd(
-        ptr, sequence_number, base_data_offset, base_media_decode_time,
-        samples_info[0].size, default_sample_duration, samples_info,
-        samples_info_len, data_offset);
+        ptr, sequence_number, base_data_offset, samples_info[0].size, 
+        default_sample_duration, is_audio);
     chk_err;
     err = write_tfdt(ptr, base_media_decode_time);
     chk_err;
-    err = write_trun(ptr, samples_info, samples_info_len, data_offset);
+    err = write_trun(ptr, samples_info, samples_info_len, data_offset, is_audio);
     chk_err;
     err = put_u32_be_to_offset(ptr, start_atom, ptr->offset - start_atom);
     chk_err;
@@ -128,10 +160,8 @@ enum BufError write_traf(
 
 enum BufError write_tfhd(
     struct BitBuf *ptr, const uint32_t sequence_number,
-    const uint64_t base_data_offset, const uint64_t base_media_decode_time,
-    const uint32_t default_sample_size, const uint32_t default_sample_duration,
-    const struct SampleInfo *samples_info, const uint32_t samples_info_len,
-    struct DataOffsetPos *data_offset) {
+    const uint64_t base_data_offset, const uint32_t default_sample_size, 
+    const uint32_t default_sample_duration, char is_audio) {
     enum BufError err;
     uint32_t start_atom = ptr->offset;
     err = put_u32_be(ptr, 0);
@@ -178,7 +208,7 @@ enum BufError write_tfhd(
     err = put_u8(ptr, flags >> 0);
     chk_err; // 3 flags
 
-    err = put_u32_be(ptr, 1);
+    err = put_u32_be(ptr, is_audio ? 2 : 1);
     chk_err; // 4 track_ID
     if (base_data_offset_present) {
         pos_base_data_offset = ptr->offset;
@@ -196,7 +226,7 @@ enum BufError write_tfhd(
         chk_err;
     }
     if (default_sample_flags_present) {
-        err = put_u32_be(ptr, 16842752);
+        err = put_u32_be(ptr, is_audio ? 33554432 : 16842752);
         chk_err;
     }
 
@@ -212,7 +242,11 @@ write_tfdt(struct BitBuf *ptr, const uint64_t base_media_decode_time) {
     err = put_u32_be(ptr, 0);
     chk_err;
     err = put_str4(ptr, "tfdt");
-    chk_err err = put_u8(ptr, 1); // 1 version
+    chk_err;
+
+    err = put_u8(ptr, 1);
+    chk_err; // 1 version
+
     err = put_u8(ptr, 0);
     chk_err;
     err = put_u8(ptr, 0);
@@ -229,7 +263,7 @@ write_tfdt(struct BitBuf *ptr, const uint64_t base_media_decode_time) {
 
 enum BufError write_trun(
     struct BitBuf *ptr, const struct SampleInfo *samples_info,
-    const uint32_t samples_info_count, struct DataOffsetPos *data_offset) {
+    const uint32_t samples_info_count, struct DataOffsetPos *data_offset, char is_audio) {
     enum BufError err;
     uint32_t start_atom = ptr->offset;
     err = put_u32_be(ptr, 0);
@@ -267,8 +301,10 @@ enum BufError write_trun(
         } // 0x000800 sample-composition-time-offsets-present
         err = put_u8(ptr, flags >> 16);
         chk_err;
+        
         err = put_u8(ptr, flags >> 8);
         chk_err;
+
         err = put_u8(ptr, flags >> 0);
         chk_err // 3 flags
     }
@@ -281,30 +317,30 @@ enum BufError write_trun(
                      // moof atom will created
     if (data_offset_present) {
         err = put_i32_be(ptr, 0);
-        chk_err;
-    } // 4 fake data_offset
+        chk_err; // 4 fake data_offset
+    }
 
     if (first_sample_flags_present) {
-        err = put_u32_be(ptr, 33554432);
-        chk_err;
-    } // 4 first_sample_flags
+        err = put_u32_be(ptr, is_audio ? 0 : 33554432);
+        chk_err; // 4 first_sample_flags
+    }
     for (uint32_t i = 0; i < samples_info_count; ++i) {
         const struct SampleInfo sample_info = samples_info[i];
         if (sample_duration_present) {
             err = put_u32_be(ptr, sample_info.duration);
-            chk_err;
-        } // 4 sample_duration
+            chk_err; // 4 sample_duration
+        } 
         if (sample_size_present) {
             err = put_u32_be(ptr, sample_info.size);
-            chk_err;
-        } // 4 sample_size
+            chk_err; // 4 sample_size
+        }
         if (sample_flags_present) {
             err = put_u32_be(ptr, sample_info.flags);
-            chk_err;
-        } // 4 sample_flags
+            chk_err; // 4 sample_flags
+        }
         if (sample_composition_time_offsets_present) {
             err = put_i32_be(ptr, sample_info.composition_offset);
-            chk_err;
+            chk_err; // 4 sample_composition_offset
         }
     }
 

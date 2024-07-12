@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common.h"
+#include "app_config.h"
 #include "hal/support.h"
 #include "text.h"
 
@@ -28,14 +28,6 @@ extern int asprintf(char **restrict strp, const char *restrict fmt, ...);
 #else
 #include <linux/sysinfo.h>
 #endif
-
-#define REGION_ERROR(x, ...) \
-    do { \
-        fprintf(stderr, "[region] \033[31m"); \
-        fprintf(stderr, (x), ##__VA_ARGS__); \
-        fprintf(stderr, "\033[0m"); \
-        return EXIT_FAILURE; \
-    } while (0)
 
 extern char keepRunning;
 

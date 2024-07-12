@@ -1,5 +1,7 @@
 #pragma once
 
+#include "macros.h"
+
 #ifndef ALIGN_BACK
 #define ALIGN_BACK(x, a) (((x) / (a)) * (a))
 #endif
@@ -32,6 +34,12 @@ typedef enum {
     OP_WRITE = 0b10,
     OP_MODIFY = 0b11
 } hal_register_op;
+
+typedef enum {
+    HAL_AUDCODEC_UNSPEC,
+    HAL_AUDCODEC_MP3 = 0x69,
+    HAL_AUDCODEC_NONE = 0xFF
+} hal_audcodec;
 
 typedef enum {
     HAL_VIDCODEC_UNSPEC,
