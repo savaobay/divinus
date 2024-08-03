@@ -62,6 +62,20 @@ typedef enum {
     I6_VENC_RATEMODE_END
 } i6_venc_ratemode;
 
+typedef enum {
+    I6OG_VENC_RATEMODE_H264CBR = 1,
+    I6OG_VENC_RATEMODE_H264VBR,
+    I6OG_VENC_RATEMODE_H264QP,
+    I6OG_VENC_RATEMODE_H264AVBR,
+    I6OG_VENC_RATEMODE_MJPGCBR,
+    I6OG_VENC_RATEMODE_MJPGQP,
+    I6OG_VENC_RATEMODE_H265CBR,
+    I6OG_VENC_RATEMODE_H265VBR,
+    I6OG_VENC_RATEMODE_H265QP,
+    I6OG_VENC_RATEMODE_H265AVBR,
+    I6OG_VENC_RATEMODE_END
+} i6og_venc_ratemode;
+
 typedef struct {
     unsigned int maxWidth;
     unsigned int maxHeight;
@@ -345,9 +359,8 @@ static int i6_venc_load(i6_venc_impl *venc_lib) {
         hal_symbol_load("i6_venc", venc_lib->handle, "MI_VENC_Query")))
         return EXIT_FAILURE;
 
-    if (!(venc_lib->fnSetSourceConfig = (int(*)(int channel, i6_venc_src_conf *config))
-        hal_symbol_load("i6_venc", venc_lib->handle, "MI_VENC_SetInputSourceConfig")))
-        return EXIT_FAILURE;  
+    venc_lib->fnSetSourceConfig = (int(*)(int channel, i6_venc_src_conf *config))
+        hal_symbol_load("i6_venc", venc_lib->handle, "MI_VENC_SetInputSourceConfig");  
 
     if (!(venc_lib->fnRequestIdr = (int(*)(int channel, char instant))
         hal_symbol_load("i6_venc", venc_lib->handle, "MI_VENC_RequestIdr")))
