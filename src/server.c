@@ -1,5 +1,8 @@
 #include "server.h"
 
+IMPORT_STR(.rodata, "../res/index.html", indexhtml);
+extern const char indexhtml[];
+
 char keepRunning = 1;
 
 enum StreamType {
@@ -363,72 +366,16 @@ int send_file(const int client_fd, const char *path) {
     return 0;
 }
 
-int send_mjpeg_html(const int client_fd) {
-    char html[] = "<html>\n"
-                  "    <head>\n"
-                  "        <title>Live stream - MJPEG</title>\n"
-                  "    </head>\n"
-                  "    <body>\n"
-                  "        <center>\n"
-                  "            <img src=\"mjpeg\" />\n"
-                  "        </center>\n"
-                  "    </body>\n"
-                  "</html>";
-    char buf[1024];
-    int buf_len = sprintf(
-        buf,
+int send_html(const int client_fd, const char *data) {
+    char *buf;
+    int buf_len = asprintf(
+        &buf,
         "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: "
-        "%lu\r\nConnection: close\r\n\r\n%s",
-        strlen(html), html);
+        "%ld\r\nConnection: close\r\n\r\n%s",
+        strlen(data), data);
     buf[buf_len++] = 0;
     send_to_fd(client_fd, buf, buf_len);
-    close_socket_fd(client_fd);
-    return 1;
-}
-
-int send_video_html(const int client_fd) {
-    char html[] = "<html>\n"
-                  "    <head>\n"
-                  "        <title>Live stream - fMP4</title>\n"
-                  "    </head>\n"
-                  "    <body>\n"
-                  "        <center>\n"
-                  "            <video width=\"700\" src=\"video.mp4\" autoplay "
-                  "controls />\n"
-                  "        </center>\n"
-                  "    </body>\n"
-                  "</html>";
-    char buf[1024];
-    int buf_len = sprintf(
-        buf,
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: "
-        "%lu\r\nConnection: close\r\n\r\n%s",
-        strlen(html), html);
-    buf[buf_len++] = 0;
-    send_to_fd(client_fd, buf, buf_len);
-    close_socket_fd(client_fd);
-    return 1;
-}
-
-int send_image_html(const int client_fd) {
-    char html[] = "<html>\n"
-                  "    <head>\n"
-                  "        <title>Snapshot</title>\n"
-                  "    </head>\n"
-                  "    <body>\n"
-                  "        <center>\n"
-                  "            <img src=\"image.jpg\"/>\n"
-                  "        </center>\n"
-                  "    </body>\n"
-                  "</html>";
-    char buf[1024];
-    int buf_len = sprintf(
-        buf,
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: "
-        "%lu\r\nConnection: close\r\n\r\n%s",
-        strlen(html), html);
-    buf[buf_len++] = 0;
-    send_to_fd(client_fd, buf, buf_len);
+    free(buf);
     close_socket_fd(client_fd);
     return 1;
 }
@@ -605,30 +552,17 @@ void *server_thread(void *vargp) {
         }
 
         if (equals(uri, "/exit")) {
-            // exit
-            char response2[] = "HTTP/1.1 200 OK\r\nContent-Length: "
-                              "11\r\nConnection: close\r\n\r\nClosing...";
-            send_to_fd(
-                client_fd, response2,
-                sizeof(response2) - 1);
+            int respLen = sprintf(
+                response, "HTTP/1.1 200 OK\r\nContent-Length: 11\r\n"
+                        "Connection: close\r\n\r\nClosing...");
+            send_to_fd(client_fd, response, respLen);
             close_socket_fd(client_fd);
             keepRunning = 0;
             break;
         }
 
-        if (equals(uri, "/image.html") &&
-            app_config.jpeg_enable) {
-            send_image_html(client_fd);
-            continue;
-        }
-        if (equals(uri, "/mjpeg.html") &&
-            app_config.mjpeg_enable) {
-            send_mjpeg_html(client_fd);
-            continue;
-        }
-        if (equals(uri, "/video.html") &&
-            app_config.mp4_enable) {
-            send_video_html(client_fd);
+        if (equals(uri, "/") || equals(uri, "/index.htm") || equals(uri, "/index.html")) {
+            send_html(client_fd, indexhtml);
             continue;
         }
 
@@ -686,7 +620,7 @@ void *server_thread(void *vargp) {
             continue;
         }
 
-        if (equals(uri, "/video.mp4") && app_config.mp4_enable) {
+        if (app_config.mp4_enable && equals(uri, "/video.mp4")) {
             request_idr();
             int respLen = sprintf(
                 response, "HTTP/1.1 200 OK\r\nContent-Type: "
@@ -754,10 +688,11 @@ void *server_thread(void *vargp) {
                             if (remain != value)
                                 task.qfactor = result;
                         }
-                        else if (equals(key, "color2gray")) {
-                            short result = strtol(value, &remain, 10);
-                            if (remain != value)
-                                task.color2Gray = result;
+                        else if (equals(key, "color2gray") || equals(key, "gray")) {
+                            if (equals_case(value, "true") || equals(value, "1")) 
+                                task.color2Gray = 1;
+                            else if (equals_case(value, "false") || equals(value, "0")) 
+                                task.color2Gray = 0;
                         }
                     }
                 }
@@ -768,16 +703,61 @@ void *server_thread(void *vargp) {
                 size_t stacksize;
                 pthread_attr_getstacksize(&thread_attr, &stacksize);
                 size_t new_stacksize = 16 * 1024;
-                if (pthread_attr_setstacksize(&thread_attr, new_stacksize)) {
-                    printf("[jpeg] Can't set stack size %ld\n", new_stacksize);
-                }
+                if (pthread_attr_setstacksize(&thread_attr, new_stacksize))
+                    HAL_DANGER("jpeg", "Can't set stack size %zu\n", new_stacksize);
                 pthread_create(
                     &thread_id, &thread_attr, send_jpeg_thread, (void *)&task);
-                if (pthread_attr_setstacksize(&thread_attr, stacksize)) {
-                    printf("[jpeg] Can't set stack size %ld\n", stacksize);
-                }
+                if (pthread_attr_setstacksize(&thread_attr, stacksize))
+                    HAL_DANGER("jpeg", "Can't set stack size %zu\n", stacksize);
                 pthread_attr_destroy(&thread_attr);
             }
+            continue;
+        }
+
+        if (app_config.audio_enable && equals(uri, "/api/audio")) {
+            int respLen;
+            if (equals(method, "GET")) {
+                if (!empty(query)) {
+                    char *remain;
+                    while (query) {
+                        char *value = split(&query, "&");
+                        if (!value || !*value) continue;
+                        unescape_uri(value);
+                        char *key = split(&value, "=");
+                        if (!key || !*key || !value || !*value) continue;
+                        if (equals(key, "bitrate")) {
+                            short result = strtol(value, &remain, 10);
+                            if (remain != value)
+                                app_config.audio_bitrate = result;
+                        } else if (equals(key, "srate")) {
+                            short result = strtol(value, &remain, 10);
+                            if (remain != value)
+                                app_config.audio_srate = result;
+                        }
+                    }
+
+                    disable_audio();
+                    enable_audio();
+                }
+
+                respLen = sprintf(response,
+                    "HTTP/1.1 200 OK\r\n" \
+                    "Content-Type: application/json;charset=UTF-8\r\n" \
+                    "Connection: close\r\n" \
+                    "\r\n" \
+                    "{\"bitrate\":%d,\"srate\":%d}", 
+                    app_config.audio_bitrate, app_config.audio_srate);
+            } else {
+                respLen = sprintf(response,
+                    "HTTP/1.1 400 Bad Request\r\n" \
+                    "Content-Type: text/plain\r\n" \
+                    "Connection: close\r\n" \
+                    "\r\n" \
+                    "The server has no handler to the request.\r\n" \
+                );
+            }
+            send_to_fd(client_fd, response, respLen);
+            close_socket_fd(client_fd);
             continue;
         }
 
@@ -806,10 +786,10 @@ void *server_thread(void *vargp) {
                                 app_config.jpeg_qfactor = result;
                         }
                     }
-                }
 
-                jpeg_deinit();
-                jpeg_init();
+                    jpeg_deinit();
+                    jpeg_init();
+                }
 
                 respLen = sprintf(response,
                     "HTTP/1.1 200 OK\r\n" \
@@ -864,10 +844,10 @@ void *server_thread(void *vargp) {
                                 app_config.mjpeg_mode = HAL_VIDMODE_QP;
                         }
                     }
-                }
 
-                disable_mjpeg();
-                enable_mjpeg();
+                    disable_mjpeg();
+                    enable_mjpeg();
+                }
 
                 char mode[5] = "\0";
                 switch (app_config.mjpeg_mode) {
@@ -925,9 +905,9 @@ void *server_thread(void *vargp) {
                             if (remain != value)
                                 app_config.mp4_bitrate = result;
                         } else if (equals(key, "h265")) {
-                            if (equals(value, "true") || equals(value, "1"))
+                            if (equals_case(value, "true") || equals(value, "1"))
                                 app_config.mp4_codecH265 = 1;
-                            else if (equals(value, "false") || equals(value, "0"))
+                            else if (equals_case(value, "false") || equals(value, "0"))
                                 app_config.mp4_codecH265 = 0;
                         } else if (equals(key, "mode")) {
                             if (equals_case(value, "CBR"))
@@ -949,10 +929,10 @@ void *server_thread(void *vargp) {
                                 app_config.mp4_profile = HAL_VIDPROFILE_HIGH;
                         }
                     }
-                }
 
-                disable_mp4();
-                enable_mp4();
+                    disable_mp4();
+                    enable_mp4();
+                }
 
                 char h265[6] = "false";
                 char mode[5] = "\0";
@@ -1005,9 +985,9 @@ void *server_thread(void *vargp) {
                         char *key = split(&value, "=");
                         if (!key || !*key || !value || !*value) continue;
                         if (equals(key, "active")) {
-                            if (equals_case(value, "true") || equals_case(value, "1"))
+                            if (equals_case(value, "true") || equals(value, "1"))
                                 set_night_mode(1);
-                            else if (equals_case(value, "false") || equals_case(value, "0"))
+                            else if (equals_case(value, "false") || equals(value, "0"))
                                 set_night_mode(0);
                         }
                     }
@@ -1127,6 +1107,43 @@ void *server_thread(void *vargp) {
                 "\r\n" \
                 "{\"id\":%d,\"color\":%#x,\"opal\":%d\"pos\":[%d,%d],\"font\":\"%s\",\"size\":%.1f,\"text\":\"%s\"}", 
                 id, osds[id].color, osds[id].opal, osds[id].posx, osds[id].posy, osds[id].font, osds[id].size, osds[id].text);
+            send_to_fd(client_fd, response, respLen);
+            close_socket_fd(client_fd);
+            continue;
+        }
+
+        if (equals(uri, "/api/status")) {
+            int respLen;
+            if (equals(method, "GET")) {
+                struct sysinfo si;
+                sysinfo(&si);
+                char memory[16], uptime[48];
+                short used = (si.freeram + si.bufferram) / 1024 / 1024;
+                short total = si.totalram / 1024 / 1024;
+                sprintf(memory, "%d/%dMB", used, total);
+                if (si.uptime > 86400)
+                    sprintf(uptime, "%ld days, %ld:%02ld:%02ld", si.uptime / 86400, (si.uptime % 86400) / 3600, (si.uptime % 3600) / 60, si.uptime % 60);
+                else if (si.uptime > 3600)
+                    sprintf(uptime, "%ld:%02ld:%02ld", si.uptime / 3600, (si.uptime % 3600) / 60, si.uptime % 60);
+                else
+                    sprintf(uptime, "%ld:%02ld", si.uptime / 60, si.uptime % 60);
+                respLen = sprintf(response,
+                    "HTTP/1.1 200 OK\r\n" \
+                    "Content-Type: application/json;charset=UTF-8\r\n" \
+                    "Connection: close\r\n" \
+                    "\r\n" \
+                    "{\"chip\":\"%s\",\"loadavg\":[%.2f,%.2f,%.2f],\"memory\":\"%s\",\"uptime\":\"%s\"}",
+                    chipId, si.loads[0] / 65536.0, si.loads[1] / 65536.0, si.loads[2] / 65536.0,
+                    memory, uptime);
+            } else {
+                respLen = sprintf(response,
+                    "HTTP/1.1 400 Bad Request\r\n" \
+                    "Content-Type: text/plain\r\n" \
+                    "Connection: close\r\n" \
+                    "\r\n" \
+                    "The server has no handler to the request.\r\n" \
+                );
+            }
             send_to_fd(client_fd, response, respLen);
             close_socket_fd(client_fd);
             continue;

@@ -6,8 +6,9 @@
 
 uint32_t default_sample_size = 40000;
 
-unsigned int aud_samplerate = 0;
+unsigned int aud_samplerate = 0, aud_framesize = 0;
 unsigned short aud_bitrate = 0;
+char aud_channels = 0;
 short vid_width = 1920, vid_height = 1080;
 char aud_codec = 0, vid_framerate = 30;
 
@@ -35,6 +36,8 @@ enum BufError create_header(char is_h265) {
     struct MoovInfo moov_info;
     memset(&moov_info, 0, sizeof(struct MoovInfo));
     moov_info.audio_codec = aud_codec;
+    moov_info.audio_bitrate = aud_bitrate;
+    moov_info.audio_channels = aud_channels;
     moov_info.audio_samplerate = aud_samplerate;
     moov_info.is_h265 = is_h265 & 1;
     moov_info.profile_idc = 100;
@@ -59,14 +62,19 @@ enum BufError create_header(char is_h265) {
     chk_err return BUF_OK;
 }
 
-void mp4_set_config(short width, short height, char framerate,
-    char acodec, unsigned short bitrate, unsigned int srate) {
+void mp4_set_config(short width, short height, char framerate, char acodec,
+    unsigned short bitrate, char channels, unsigned int srate) {
     vid_width = width;
     vid_height = height;
     vid_framerate = framerate;
     aud_codec = acodec;
     aud_bitrate = bitrate;
+    aud_channels = channels;
     aud_samplerate = srate;
+    aud_framesize = 
+        (aud_samplerate >= 32000 ? 144 : 72) *
+        (aud_bitrate * 1000) / 
+        aud_samplerate;
 }
 
 void mp4_set_sps(const char *nal_data, const uint32_t nal_len, char is_h265) {
@@ -95,23 +103,20 @@ enum BufError mp4_set_slice(const char *nal_data, const uint32_t nal_len,
     struct SampleInfo samples_info[2];
     memset(samples_info, 0, sizeof(samples_info));
     samples_info[0].size = nal_len + 4; // add size of sample
-    samples_info[0].composition_offset = default_sample_size;
-    samples_info[0].decode_time = default_sample_size;
     samples_info[0].duration = default_sample_size;
     samples_info[0].flags = is_iframe ? 0 : 65536;
     samples_info[1].size = buf_aud.offset;
-    samples_info[1].duration = default_sample_size;
+    samples_info[1].duration = 1152 * buf_aud.offset / aud_framesize;
 
     buf_moof.offset = 0;
     err = write_moof(
         &buf_moof, 0, 0, 0, default_sample_size, samples_info,
-        samples_info_len, samples_info + 1, 
-        buf_aud.offset >= 2304 ? 1 : 0);
+        samples_info_len, samples_info + 1, 1);
     chk_err;
 
     buf_mdat.offset = 0;
     err = write_mdat(&buf_mdat, nal_data, nal_len, 
-        buf_aud.buf, buf_aud.offset >= 2304 ? buf_aud.offset : 0);
+        buf_aud.buf, buf_aud.offset);
     chk_err;
 
     buf_aud.offset = 0;
@@ -134,8 +139,11 @@ enum BufError mp4_set_state(struct Mp4State *state) {
             &buf_moof, pos_sequence_number, state->sequence_number);
     chk_err if (pos_base_data_offset > 0) err = put_u64_be_to_offset(
         &buf_moof, pos_base_data_offset, state->base_data_offset);
-    chk_err if (pos_base_media_decode_time > 0) err = put_u64_be_to_offset(
-        &buf_moof, pos_base_media_decode_time,
+    chk_err if (pos_audio_media_decode_time > 0) err = put_u64_be_to_offset(
+        &buf_moof, pos_audio_media_decode_time,
+        state->base_media_decode_time);
+    chk_err if (pos_video_media_decode_time > 0) err = put_u64_be_to_offset(
+        &buf_moof, pos_video_media_decode_time,
         state->base_media_decode_time);
     chk_err state->sequence_number++;
     state->base_data_offset += buf_moof.offset + buf_mdat.offset;

@@ -2,6 +2,7 @@
 #include "hal/macros.h"
 #include "http_post.h"
 #include "media.h"
+#include "network.h"
 #include "night.h"
 #include "rtsp/rtsp_server.h"
 #include "server.h"
@@ -29,6 +30,8 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Divinus for infinity6c\n"); break;
         case HAL_PLATFORM_I6F:
             fprintf(stderr, "Divinus for infinity6f\n"); break;
+        case HAL_PLATFORM_V1:
+            fprintf(stderr, "Divinus for hisi-gen1\n"); break;
         case HAL_PLATFORM_V2:
             fprintf(stderr, "Divinus for hisi-gen2\n"); break;
         case HAL_PLATFORM_V3:
@@ -49,6 +52,9 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Can't load app config 'divinus.yaml'\n");
         return EXIT_FAILURE;
     }
+
+    if (app_config.mdns_enable)
+        start_mdns();
 
     start_server();
 
@@ -88,6 +94,9 @@ int main(int argc, char *argv[]) {
     stop_sdk();
 
     stop_server();
+
+    if (app_config.mdns_enable)
+        stop_mdns();
 
     fprintf(stderr, "Main thread is shutting down...\n");
     return EXIT_SUCCESS;

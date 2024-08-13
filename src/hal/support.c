@@ -166,14 +166,15 @@ void hal_identify(void) {
     }
 
     unsigned SCSYSID[4] = {0};
+    unsigned int out = 0;
     for (int i = 0; i < 4; i++) {
-        if (!hal_registry(val + 0xEE0 + i * 4, (unsigned*)&SCSYSID[i], OP_READ)) break;
-        if (!i && (SCSYSID[i] >> 16 & 0xFF)) { val = SCSYSID[i]; break; }
-        val |= (SCSYSID[i] & 0xFF) << i * 8;
+        if (!hal_registry(val + 0xEE0 + (i * 4), (unsigned*)&SCSYSID[i], OP_READ)) break;
+        if (!i && (SCSYSID[i] >> 16 & 0xFF)) { out = SCSYSID[i]; break; }
+        out |= (SCSYSID[i] & 0xFF) << i * 8;
     }
 
     sprintf(chipId, "%s%X", 
-        ((val >> 28) == 0x7) ? "GK" : "Hi", val);
+        ((out >> 28) == 0x7) ? "GK" : "Hi", out);
     if (chipId[6] == '0') {
         chipId[6] = 'V';
     } else {
@@ -184,7 +185,15 @@ void hal_identify(void) {
         chipId[11] = '\0';
     }
 
-    if (v2series) {
+    if (out == 0x35180100) {
+        plat = HAL_PLATFORM_V1;
+        chnCount = V1_VENC_CHN_NUM;
+        chnState = (hal_chnstate*)v1_state;
+        aud_thread = v1_audio_thread;
+        isp_thread = v1_image_thread;
+        vid_thread = v1_video_thread;
+        return;    
+    } else if (v2series) {
         plat = HAL_PLATFORM_V2;
         chnCount = V2_VENC_CHN_NUM;
         chnState = (hal_chnstate*)v2_state;
@@ -192,9 +201,7 @@ void hal_identify(void) {
         isp_thread = v2_image_thread;
         vid_thread = v2_video_thread;
         return;    
-    }
-
-    if (v3series) {
+    } else if (v3series) {
         plat = HAL_PLATFORM_V3;
         chnCount = V3_VENC_CHN_NUM;
         chnState = (hal_chnstate*)v3_state;
