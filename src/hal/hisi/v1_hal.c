@@ -23,7 +23,7 @@ char _v1_aud_chn = 0;
 char _v1_aud_dev = 0;
 char _v1_isp_chn = 0;
 char _v1_isp_dev = 0;
-char _v1_venc_dev = 0;
+char _v1_venc_grp = 0;
 char _v1_vi_chn = 0;
 char _v1_vi_dev = 0;
 char _v1_vpss_chn = 0;
@@ -146,7 +146,7 @@ int v1_channel_bind(char index)
         v1_sys_bind source = { .module = V1_SYS_MOD_VPSS, 
             .device = _v1_vpss_grp, .channel = index };
         v1_sys_bind dest = { .module = V1_SYS_MOD_VENC,
-            .device = _v1_venc_dev, .channel = index };
+            .device = _v1_venc_grp, .channel = index };
         if (ret = v1_sys.fnBind(&source, &dest))
             return ret;
     }
@@ -207,7 +207,7 @@ int v1_channel_unbind(char index)
         v1_sys_bind source = { .module = V1_SYS_MOD_VPSS, 
             .device = _v1_vpss_grp, .channel = index };
         v1_sys_bind dest = { .module = V1_SYS_MOD_VENC,
-            .device = _v1_venc_dev, .channel = index };
+            .device = _v1_venc_grp, .channel = index };
         if (ret = v1_sys.fnUnbind(&source, &dest))
             return ret;
     }
@@ -228,6 +228,8 @@ int v1_pipeline_create(void)
 {
     int ret;
 
+    if (ret = v1_snr_drv.fnInit())
+        return ret;
     if (ret = v1_snr_drv.fnRegisterCallback())
         return ret;
     
@@ -289,6 +291,8 @@ int v1_pipeline_create(void)
         if (ret = v1_vpss.fnCreateGroup(_v1_vpss_grp, &group))
             return ret;
     }
+    if (ret = v1_vpss.fnEnableChannel(_v1_vpss_grp, _v1_vpss_chn))
+        return ret;
     if (ret = v1_vpss.fnStartGroup(_v1_vpss_grp))
         return ret;
 
@@ -320,6 +324,7 @@ void v1_pipeline_destroy(void)
         }
 
         v1_vpss.fnStopGroup(grp);
+        v1_vpss.fnDisableChannel(grp, _v1_vpss_chn);
         v1_vpss.fnDestroyGroup(grp);
     }
     
@@ -339,7 +344,7 @@ int v1_region_create(char handle, hal_rect rect, short opacity)
     int ret;
 
     v1_sys_bind channel = { .module = V1_SYS_MOD_VENC,
-        .device = _v1_venc_dev, .channel = 0 };
+        .device = _v1_venc_grp, .channel = 0 };
     v1_rgn_cnf region, regionCurr;
     v1_rgn_chn attrib, attribCurr;
 
@@ -389,7 +394,7 @@ int v1_region_create(char handle, hal_rect rect, short opacity)
 void v1_region_destroy(char handle)
 {
     v1_sys_bind channel = { .module = V1_SYS_MOD_VENC,
-        .device = _v1_venc_dev, .channel = 0 };
+        .device = _v1_venc_grp, .channel = 0 };
     
     v1_rgn.fnDetachChannel(handle, &channel);
     v1_rgn.fnDestroyRegion(handle);
@@ -422,6 +427,8 @@ int v1_sensor_init(char *name, char *obj)
     } if (!v1_snr_drv.handle)
         HAL_ERROR("v1_snr", "Failed to load the sensor driver");
 
+    if (!(v1_snr_drv.fnInit = (int(*)(void))dlsym(v1_snr_drv.handle, "sensor_init")))
+        HAL_ERROR("v1_snr", "Failed to connect the init function");
     if (!(v1_snr_drv.fnRegisterCallback = (int(*)(void))dlsym(v1_snr_drv.handle, "sensor_register_callback")))
         HAL_ERROR("v1_snr", "Failed to connect the callback register function");
     if (!(v1_snr_drv.fnUnRegisterCallback = (int(*)(void))dlsym(v1_snr_drv.handle, "sensor_unregister_callback")))
@@ -517,13 +524,13 @@ int v1_video_create(char index, hal_vidconfig *config)
     attrib->bFrameNum = 0;
     attrib->refNum = 1;
 attach:
-    if (ret = v1_venc.fnCreateGroup(_v1_vpss_grp))
+    if (ret = v1_venc.fnCreateGroup(_v1_venc_grp))
         return ret;
 
     if (ret = v1_venc.fnCreateChannel(index, &channel))
         return ret;
 
-    if (ret = v1_venc.fnRegisterChannel(_v1_vpss_grp, index))
+    if (ret = v1_venc.fnRegisterChannel(_v1_venc_grp, index))
         return ret;
 
     if (config->codec != HAL_VIDCODEC_JPG && 
@@ -548,7 +555,7 @@ int v1_video_destroy(char index)
         v1_sys_bind source = { .module = V1_SYS_MOD_VPSS, 
             .device = _v1_vpss_grp, .channel = index };
         v1_sys_bind dest = { .module = V1_SYS_MOD_VENC,
-            .device = _v1_venc_dev, .channel = index };
+            .device = _v1_venc_grp, .channel = index };
         if (ret = v1_sys.fnUnbind(&source, &dest))
             return ret;
     }
@@ -559,7 +566,7 @@ int v1_video_destroy(char index)
     if (ret = v1_venc.fnDestroyChannel(index))
         return ret;
 
-    if (ret = v1_venc.fnDestroyGroup(_v1_venc_dev))
+    if (ret = v1_venc.fnDestroyGroup(_v1_venc_grp))
         return ret;
     
     if (ret = v1_vpss.fnDisableChannel(_v1_vpss_grp, index))
@@ -824,7 +831,7 @@ int v1_system_init(char *snrConfig)
             v1_config.vichn.capt.height ? 
                 v1_config.vichn.capt.height : v1_config.videv.rect.height,
             V1_PIXFMT_YUV420SP, alignWidth);
-        pool.comm[0].blockCnt = 8;
+        pool.comm[0].blockCnt = 5;
 
         if (ret = v1_vb.fnConfigPool(&pool))
             return ret;
