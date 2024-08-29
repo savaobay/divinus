@@ -23,7 +23,6 @@ char _v1_aud_chn = 0;
 char _v1_aud_dev = 0;
 char _v1_isp_chn = 0;
 char _v1_isp_dev = 0;
-char _v1_venc_grp = 0;
 char _v1_vi_chn = 0;
 char _v1_vi_dev = 0;
 char _v1_vpss_chn = 0;
@@ -85,14 +84,14 @@ int v1_audio_init(int samplerate)
         config.expandOn = 0;
         config.frmNum = 30;
         config.packNumPerFrm = 320;
-        config.chnNum = 1;
+        config.chnNum = 2;
         config.syncRxClkOn = 0;
         if (ret = v1_aud.fnSetDeviceConfig(_v1_aud_dev, &config))
             return ret;
     }
     if (ret = v1_aud.fnEnableDevice(_v1_aud_dev))
         return ret;
-    
+
     if (ret = v1_aud.fnEnableChannel(_v1_aud_dev, _v1_aud_chn))
         return ret;
 
@@ -145,8 +144,8 @@ int v1_channel_bind(char index)
     {
         v1_sys_bind source = { .module = V1_SYS_MOD_VPSS, 
             .device = _v1_vpss_grp, .channel = index };
-        v1_sys_bind dest = { .module = V1_SYS_MOD_VENC,
-            .device = _v1_venc_grp, .channel = index };
+        v1_sys_bind dest = { .module = V1_SYS_MOD_GROUP,
+            .device = index, .channel = 0 };
         if (ret = v1_sys.fnBind(&source, &dest))
             return ret;
     }
@@ -206,8 +205,8 @@ int v1_channel_unbind(char index)
     {
         v1_sys_bind source = { .module = V1_SYS_MOD_VPSS, 
             .device = _v1_vpss_grp, .channel = index };
-        v1_sys_bind dest = { .module = V1_SYS_MOD_VENC,
-            .device = _v1_venc_grp, .channel = index };
+        v1_sys_bind dest = { .module = V1_SYS_MOD_GROUP,
+            .device = index, .channel = 0 };
         if (ret = v1_sys.fnUnbind(&source, &dest))
             return ret;
     }
@@ -343,8 +342,8 @@ int v1_region_create(char handle, hal_rect rect, short opacity)
 {
     int ret;
 
-    v1_sys_bind channel = { .module = V1_SYS_MOD_VENC,
-        .device = _v1_venc_grp, .channel = 0 };
+    v1_sys_bind channel = { .module = V1_SYS_MOD_VPSS,
+        .device = _v1_vpss_grp, .channel = 0 };
     v1_rgn_cnf region, regionCurr;
     v1_rgn_chn attrib, attribCurr;
 
@@ -393,8 +392,8 @@ int v1_region_create(char handle, hal_rect rect, short opacity)
 
 void v1_region_destroy(char handle)
 {
-    v1_sys_bind channel = { .module = V1_SYS_MOD_VENC,
-        .device = _v1_venc_grp, .channel = 0 };
+    v1_sys_bind channel = { .module = V1_SYS_MOD_VPSS,
+        .device = _v1_vpss_grp, .channel = 0 };
     
     v1_rgn.fnDetachChannel(handle, &channel);
     v1_rgn.fnDestroyRegion(handle);
@@ -463,7 +462,7 @@ int v1_video_create(char index, hal_vidconfig *config)
         channel.attrib.mjpg.bufSize = 
             config->height * config->width * 2;
         channel.attrib.mjpg.byFrame = 1;
-        channel.attrib.mjpg.mainStrmOn = index ? 0 : 1;
+        channel.attrib.mjpg.mainStrmOn = 1;
         channel.attrib.mjpg.fieldOrFrame = 0;
         channel.attrib.mjpg.priority = 0;
         channel.attrib.mjpg.pic.width = config->width;
@@ -513,24 +512,22 @@ int v1_video_create(char index, hal_vidconfig *config)
     attrib->maxPic.width = config->width;
     attrib->maxPic.height = config->height;
     attrib->bufSize = config->height * config->width * 2;
-    attrib->profile = config->profile;
-    attrib->byFrame = 1;
+    attrib->profile = MIN(config->profile, 1);
+    attrib->byFrame = 0;
     attrib->fieldOn = 0;
-    attrib->mainStrmOn = index ? 0 : 1;
+    attrib->mainStrmOn = 1;
     attrib->priority = 0;
     attrib->fieldOrFrame = 0;
     attrib->pic.width = config->width;
     attrib->pic.height = config->height;
-    attrib->bFrameNum = 0;
-    attrib->refNum = 1;
 attach:
-    if (ret = v1_venc.fnCreateGroup(_v1_venc_grp))
+    if (ret = v1_venc.fnCreateGroup(index))
         return ret;
 
     if (ret = v1_venc.fnCreateChannel(index, &channel))
         return ret;
 
-    if (ret = v1_venc.fnRegisterChannel(_v1_venc_grp, index))
+    if (ret = v1_venc.fnRegisterChannel(index, index))
         return ret;
 
     if (config->codec != HAL_VIDCODEC_JPG && 
@@ -554,8 +551,8 @@ int v1_video_destroy(char index)
     {
         v1_sys_bind source = { .module = V1_SYS_MOD_VPSS, 
             .device = _v1_vpss_grp, .channel = index };
-        v1_sys_bind dest = { .module = V1_SYS_MOD_VENC,
-            .device = _v1_venc_grp, .channel = index };
+        v1_sys_bind dest = { .module = V1_SYS_MOD_GROUP,
+            .device = index, .channel = 0 };
         if (ret = v1_sys.fnUnbind(&source, &dest))
             return ret;
     }
@@ -566,7 +563,7 @@ int v1_video_destroy(char index)
     if (ret = v1_venc.fnDestroyChannel(index))
         return ret;
 
-    if (ret = v1_venc.fnDestroyGroup(_v1_venc_grp))
+    if (ret = v1_venc.fnDestroyGroup(index))
         return ret;
     
     if (ret = v1_vpss.fnDisableChannel(_v1_vpss_grp, index))
@@ -603,7 +600,7 @@ int v1_video_snapshot_grab(char index, hal_jpegdata *jpeg)
     }
 
     unsigned int count = 1;
-    if (v1_venc.fnStartReceivingEx(index, &count)) {
+    if (ret = v1_venc.fnStartReceivingEx(index, &count)) {
         HAL_DANGER("v1_venc", "Requesting one frame "
             "%d failed with %#x!\n", index, ret);
         goto abort;
@@ -626,7 +623,7 @@ int v1_video_snapshot_grab(char index, hal_jpegdata *jpeg)
 
     if (FD_ISSET(fd, &readFds)) {
         v1_venc_stat stat;
-        if (v1_venc.fnQuery(index, &stat)) {
+        if (ret = v1_venc.fnQuery(index, &stat)) {
             HAL_DANGER("v1_venc", "Querying the encoder channel "
                 "%d failed with %#x!\n", index, ret);
             goto abort;
@@ -658,8 +655,8 @@ int v1_video_snapshot_grab(char index, hal_jpegdata *jpeg)
             jpeg->jpegSize = 0;
             for (unsigned int i = 0; i < strm.count; i++) {
                 v1_venc_pack *pack = &strm.packet[i];
-                unsigned int packLen = pack->length - pack->offset;
-                unsigned char *packData = pack->data + pack->offset;
+                unsigned int packLen = pack->length[0] + pack->length[1] - pack->offset;
+                unsigned char *packData = pack->data[0] + pack->offset;
 
                 unsigned int newLen = jpeg->jpegSize + packLen;
                 if (newLen > jpeg->length) {
@@ -750,7 +747,7 @@ void *v1_video_thread(void)
                     }
                     stream.count = stat.curPacks;
 
-                    if (ret = v1_venc.fnGetStream(i, &stream, 40)) {
+                    if (ret = v1_venc.fnGetStream(i, &stream, 0)) {
                         HAL_DANGER("v1_venc", "Getting the stream on "
                             "channel %d failed with %#x!\n", i, ret);
                         break;
@@ -763,10 +760,10 @@ void *v1_video_thread(void)
                         outStrm.seq = stream.sequence;
                         for (int j = 0; j < stream.count; j++) {
                             v1_venc_pack *pack = &stream.packet[j];
-                            outPack[j].data = pack->data;
-                            outPack[j].length = pack->length;
+                            outPack[j].data = pack->data[0];
+                            outPack[j].length = pack->length[0] + pack->length[1];
                             outPack[j].naluCnt = 1;
-                            outPack[j].nalu[0].length = pack->length;
+                            outPack[j].nalu[0].length = pack->length[0] + pack->length[1];
                             outPack[j].nalu[0].offset = pack->offset;
                             switch (v1_state[i].payload) {
                                 case HAL_VIDCODEC_H264:
@@ -819,7 +816,7 @@ int v1_system_init(char *snrConfig)
     v1_vb.fnExit();
 
     {
-        int alignWidth = 64;
+        int alignWidth = 16;
         v1_vb_pool pool;
 
         memset(&pool, 0, sizeof(pool)); 

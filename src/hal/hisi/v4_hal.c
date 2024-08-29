@@ -541,10 +541,10 @@ int v4_sensor_init(char *name, char *obj)
         if (v4_snr_drv.handle = dlopen(path, RTLD_LAZY | RTLD_GLOBAL))
             break;
     } if (!v4_snr_drv.handle)
-        HAL_ERROR("v4_snr", "Failed to load the sensor driver");
+        HAL_ERROR("v4_snr", "Failed to load the sensor driver\n");
     
     if (!(v4_snr_drv.obj = (v4_snr_obj*)dlsym(v4_snr_drv.handle, obj)))
-        HAL_ERROR("v4_snr", "Failed to connect the sensor object");
+        HAL_ERROR("v4_snr", "Failed to connect the sensor object\n");
 
     return EXIT_SUCCESS;
 }
@@ -708,7 +708,7 @@ int v4_video_snapshot_grab(char index, hal_jpegdata *jpeg)
     }
 
     unsigned int count = 1;
-    if (v4_venc.fnStartReceivingEx(index, &count)) {
+    if (ret = v4_venc.fnStartReceivingEx(index, &count)) {
         HAL_DANGER("v4_venc", "Requesting one frame "
             "%d failed with %#x!\n", index, ret);
         goto abort;
@@ -731,7 +731,7 @@ int v4_video_snapshot_grab(char index, hal_jpegdata *jpeg)
 
     if (FD_ISSET(fd, &readFds)) {
         v4_venc_stat stat;
-        if (v4_venc.fnQuery(index, &stat)) {
+        if (ret = v4_venc.fnQuery(index, &stat)) {
             HAL_DANGER("v4_venc", "Querying the encoder channel "
                 "%d failed with %#x!\n", index, ret);
             goto abort;

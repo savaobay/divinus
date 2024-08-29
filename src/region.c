@@ -26,7 +26,7 @@ void region_fill_formatted(char* str)
 
             for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
             { 
-                if (equals(ifa->ifa_name, "lo")) continue;
+                if (EQUALS(ifa->ifa_name, "lo")) continue;
                 if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_PACKET) continue;
                 if (!ifa->ifa_data) continue;
 
@@ -218,7 +218,7 @@ void *region_thread(void)
 
     while (keepRunning) {
         for (char id = 0; id < MAX_OSD; id++) {
-            if (!empty(osds[id].text))
+            if (!EMPTY(osds[id].text))
             {
                 char out[80];
                 strcpy(out, osds[id].text);
@@ -237,6 +237,10 @@ void *region_thread(void)
                             .x = osds[id].posx, .y = osds[id].posy };
                         switch (plat) {
 #if defined(__arm__)
+                            case HAL_PLATFORM_GM:
+                                gm_region_setbitmap(id, &bitmap);
+                                gm_region_create(id, rect, osds[id].opal);
+                                break;
                             case HAL_PLATFORM_I6:
                                 i6_region_create(id, rect, osds[id].opal);
                                 i6_region_setbitmap(id, &bitmap);
@@ -276,7 +280,7 @@ void *region_thread(void)
                     }
                 }
             }
-            else if (empty(osds[id].text) && osds[id].updt)
+            else if (EMPTY(osds[id].text) && osds[id].updt)
             {
                 char img[32];
                 sprintf(img, "/tmp/osd%d.bmp", id);
@@ -289,6 +293,10 @@ void *region_thread(void)
                             .x = osds[id].posx, .y = osds[id].posy };
                         switch (plat) {
 #if defined(__arm__)
+                            case HAL_PLATFORM_GM:
+                                gm_region_create(id, rect, osds[id].opal);
+                                gm_region_setbitmap(id, &bitmap);
+                                break;
                             case HAL_PLATFORM_I6:
                                 i6_region_create(id, rect, osds[id].opal);
                                 i6_region_setbitmap(id, &bitmap);
@@ -330,6 +338,7 @@ void *region_thread(void)
                 else
                     switch (plat) {
 #if defined(__arm__)
+                        case HAL_PLATFORM_GM:  gm_region_destroy(id); break;
                         case HAL_PLATFORM_I6:  i6_region_destroy(id); break;
                         case HAL_PLATFORM_I6C: i6c_region_destroy(id); break;
                         case HAL_PLATFORM_I6F: i6f_region_destroy(id); break;

@@ -6,7 +6,9 @@ void *vid_thread = NULL;
 
 char chnCount = 0;
 hal_chnstate *chnState = NULL;
-char chipId[16] = "unknown";
+
+char chip[16] = "unknown";
+char family[32] = {0};
 hal_platform plat = HAL_PLATFORM_UNK;
 int series = 0;
 
@@ -62,55 +64,115 @@ void hal_identify(void) {
     char line[200] = {0};
 
 #ifdef __arm__
-    if (!access("/proc/mi_modules", 0) && 
-        hal_registry(0x1F003C00, &series, OP_READ))
+    if (!access("/proc/mi_modules", F_OK) && 
+        hal_registry(0x1F003C00, &series, OP_READ)) {
+        char package[4] = {0};
+        short memory = 0;
+
+        plat = HAL_PLATFORM_I6;
+        chnCount = I6_VENC_CHN_NUM;
+        chnState = (hal_chnstate*)i6_state;
+        aud_thread = i6_audio_thread;
+        vid_thread = i6_video_thread;
+
+        if (file = fopen("/proc/cmdline", "r")) {
+            fgets(line, 200, file);
+            char *remain, *capacity = strstr(line, "LX_MEM=");
+            memory = (short)(strtol(capacity + 7, &remain, 16) >> 20);
+            fclose(file);
+        }
+
+        if (file = fopen("/sys/devices/soc0/machine", "r")) {
+            fgets(line, 200, file);
+            char *board = strstr(line, "SSC");
+            strncpy(package, board + 4, 3);
+            fclose(file);
+        }
+
         switch (series) {
-            case 0xEF: // Macaron (6)
-            case 0xF1: // Pudding (6E)
-            case 0xF2: // Ispahan (6B0)
-                plat = HAL_PLATFORM_I6;
-                strcpy(chipId, series == 0xEF ? 
-                    "SSC32x" : "SSC33x");
-                chnCount = I6_VENC_CHN_NUM;
-                chnState = (hal_chnstate*)i6_state;
-                aud_thread = i6_audio_thread;
-                vid_thread = i6_video_thread;
-                return;
+            case 0xEF:
+                if (memory > 128)
+                    strcpy(chip, "SSC327Q");
+                else if (memory > 64) 
+                    strcpy(chip, "SSC32[5/7]D");
+                else 
+                    strcpy(chip, "SSC32[3/5/7]");
+                if (package[2] == 'B' && chip[strlen(chip) - 1] != 'Q')
+                    strcat(chip, "E");
+                strcpy(family, "infinity6");
+                break;
+            case 0xF1:
+                if (package[2] == 'A')
+                    strcpy(chip, "SSC33[8/9]G");
+                else {
+                    if (sysconf(_SC_NPROCESSORS_CONF) == 1)
+                        strcpy(chip, "SSC30K");
+                    else
+                        strcpy(chip, "SSC33[6/8]");
+                    if (memory > 128)
+                        strcat(chip, "D");
+                    else if (memory > 64)
+                        strcat(chip, "Q");
+                }
+                strcpy(family, "infinity6e");
+                break;
+            case 0xF2: 
+                strcpy(chip, "SSC33[3/5/7]");
+                if (memory > 64)
+                    strcat(chip, "D");
+                if (package[2] == 'B')
+                    strcat(chip, "E");
+                strcpy(family, "infinity6b0");
+                break;
             case 0xF9:
                 plat = HAL_PLATFORM_I6C;
-                strcpy(chipId, "SSC37x");
+                strcpy(chip, "SSC37[7/8]");
+                if (memory > 128)
+                    strcat(chip, "Q");
+                else if (memory > 64)
+                    strcat(chip, "D");
+                if (package[2] == 'D')
+                    strcat(chip, "E");
+                strcpy(family, "infinity6c");
                 chnCount = I6C_VENC_CHN_NUM;
                 chnState = (hal_chnstate*)i6c_state;
                 aud_thread = i6c_audio_thread;
                 vid_thread = i6c_video_thread;
-                return;
+                break;
             case 0xFB:
                 plat = HAL_PLATFORM_I6F;
-                strcpy(chipId, "SSC37x");
+                strcpy(chip, "SSC379G");
+                strcpy(family, "infinity6f");
                 chnCount = I6F_VENC_CHN_NUM;
                 chnState = (hal_chnstate*)i6f_state;
                 aud_thread = i6f_audio_thread;
                 vid_thread = i6f_video_thread;
-                return;
+                break;
+            default:
+                plat = HAL_PLATFORM_UNK;
+                break;
         }
+    }
     
-    if (!access("/dev/vpd", 0)) {
+    if (!access("/dev/vpd", F_OK)) {
         plat = HAL_PLATFORM_GM;
-        strcpy(chipId, "GM813x");
+        strcpy(chip, "GM813x");
         if (file = fopen("/proc/pmu/chipver", "r")) {
             fgets(line, 200, file);
-            sscanf(line, "%4s", chipId + 2);
+            sscanf(line, "%4s", chip + 2);
             fclose(file);
         }
+        strcpy(family, "grainmedia");
         chnCount = GM_VENC_CHN_NUM;
         chnState = (hal_chnstate*)gm_state;
+        aud_thread = gm_audio_thread;
         vid_thread = gm_video_thread;
         return;
     }
 #endif
 
 #ifdef __mips__
-    if (!access("/proc/jz", 0) && 
+    if (!access("/proc/jz", F_OK) && 
         hal_registry(0x1300002C, &val, OP_READ)) {
         unsigned int type;
         hal_registry(0x13540238, &type, OP_READ);
@@ -119,16 +181,17 @@ void hal_identify(void) {
             case 0x31:
                 plat = HAL_PLATFORM_T31;
                 switch (type >> 16) {
-                    case 0x2222: sprintf(chipId, "T31X");  break;
-                    case 0x3333: sprintf(chipId, "T31L");  break;
-                    case 0x4444: sprintf(chipId, "T31A");  break;
-                    case 0x5555: sprintf(chipId, "T31ZL"); break;
-                    case 0x6666: sprintf(chipId, "T31ZX"); break;
-                    case 0xcccc: sprintf(chipId, "T31AL"); break;
-                    case 0xdddd: sprintf(chipId, "T31ZC"); break;
-                    case 0xeeee: sprintf(chipId, "T31LC"); break;
-                    default:     sprintf(chipId, "T31N");  break;
+                    case 0x2222: sprintf(chip, "T31X");  break;
+                    case 0x3333: sprintf(chip, "T31L");  break;
+                    case 0x4444: sprintf(chip, "T31A");  break;
+                    case 0x5555: sprintf(chip, "T31ZL"); break;
+                    case 0x6666: sprintf(chip, "T31ZX"); break;
+                    case 0xcccc: sprintf(chip, "T31AL"); break;
+                    case 0xdddd: sprintf(chip, "T31ZC"); break;
+                    case 0xeeee: sprintf(chip, "T31LC"); break;
+                    default:     sprintf(chip, "T31N");  break;
                 }
+                strcpy(family, "ingenic t31"); break;
                 chnCount = T31_VENC_CHN_NUM;
                 chnState = (hal_chnstate*)t31_state;
                 aud_thread = t31_audio_thread;
@@ -173,20 +236,21 @@ void hal_identify(void) {
         out |= (SCSYSID[i] & 0xFF) << i * 8;
     }
 
-    sprintf(chipId, "%s%X", 
+    sprintf(chip, "%s%X", 
         ((out >> 28) == 0x7) ? "GK" : "Hi", out);
-    if (chipId[6] == '0') {
-        chipId[6] = 'V';
+    if (chip[6] == '0') {
+        chip[6] = 'V';
     } else {
-        chipId[8] = chipId[7];
-        chipId[7] = 'V';
-        chipId[9] = chipId[8];
-        chipId[10] = chipId[9];
-        chipId[11] = '\0';
+        chip[8] = chip[7];
+        chip[7] = 'V';
+        chip[9] = chip[8];
+        chip[10] = chip[9];
+        chip[11] = '\0';
     }
 
     if (out == 0x35180100) {
         plat = HAL_PLATFORM_V1;
+        strcpy(family, "hisi-gen1");
         chnCount = V1_VENC_CHN_NUM;
         chnState = (hal_chnstate*)v1_state;
         aud_thread = v1_audio_thread;
@@ -195,6 +259,7 @@ void hal_identify(void) {
         return;    
     } else if (v2series) {
         plat = HAL_PLATFORM_V2;
+        strcpy(family, "hisi-gen2");
         chnCount = V2_VENC_CHN_NUM;
         chnState = (hal_chnstate*)v2_state;
         aud_thread = v2_audio_thread;
@@ -203,6 +268,7 @@ void hal_identify(void) {
         return;    
     } else if (v3series) {
         plat = HAL_PLATFORM_V3;
+        strcpy(family, "hisi-gen3");
         chnCount = V3_VENC_CHN_NUM;
         chnState = (hal_chnstate*)v3_state;
         aud_thread = v3_audio_thread;
@@ -212,10 +278,22 @@ void hal_identify(void) {
     }
 
     plat = HAL_PLATFORM_V4;
+    strcpy(family, "hisi-gen4");
     chnCount = V4_VENC_CHN_NUM;
     chnState = (hal_chnstate*)v4_state;
     aud_thread = v4_audio_thread;
     isp_thread = v4_image_thread;
     vid_thread = v4_video_thread;
+#endif
+
+#if defined(__riscv) || defined(__riscv__)
+    if (!access("/proc/cvi", F_OK)) {
+        plat = HAL_PLATFORM_CVI;
+        strcpy(family, "CV181x");
+        chnCount = CVI_VENC_CHN_NUM;
+        chnState = (hal_chnstate*)cvi_state;
+        aud_thread = cvi_audio_thread;
+        vid_thread = cvi_video_thread;
+    }
 #endif
 }

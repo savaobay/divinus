@@ -1,5 +1,11 @@
 #pragma once
 
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
 #include "hal/config.h"
 #include "hal/support.h"
 
@@ -78,3 +84,5 @@ struct AppConfig {
 
 extern struct AppConfig app_config;
 enum ConfigError parse_app_config(void);
+void restore_app_config(void);
+int save_app_config(void);

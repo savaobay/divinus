@@ -19,10 +19,10 @@ In spite of these design choices, Divinus boasts numerous features that cater to
 | SoC Family              | Audio Stream | JPEG Snapshot | fMP4 Stream | RTSP Stream | On-Screen Display* |
 |-------------------------|:------------:|:-------------:|:-----------:|:-----------:|:------------------:|
 | CV181x[^1]              | ↻            | ↻            | ↻           | ↻           | ↻                 |
-| GM813x[^2]              | ✗            | ✔️           | ✔️          | ✔️          | ✗                 |
-| Hi3516AV100[^3]         | ↻            | ✔️           | ✔️          | ✔️          | ✔️                |
+| GM813x[^2]              | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
+| Hi3516AV100[^3]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
 | Hi3516CV100[^4]         | ↻            | ↻            | ↻           | ↻           | ↻                 |
-| Hi3516CV200[^5]         | ↻            | ✔️           | ✔️          | ✔️          | ✔️                |
+| Hi3516CV200[^5]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
 | Hi3516CV300[^6]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
 | Hi3516CV500[^7]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
 | Hi3516EV200[^8]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
@@ -30,19 +30,21 @@ In spite of these design choices, Divinus boasts numerous features that cater to
 | Hi3519V100[^10]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
 | Hi3519AV100             | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
 | Hi3559AV100             | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
+| RV11xx[^11]             | ↻            | ↻            | ↻           | ↻           | ↻                 |
 | T31 series              | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
-| infinity6[^11]          | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
-| infinity6b0[^12]        | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
-| infinity6e[^13]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
-| infinity6c[^14]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
-| infinity6f[^15]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
+| infinity3[^12]          | ↻            | ↻            | ↻           | ↻           | ↻                 |
+| infinity6[^13]          | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
+| infinity6b0[^14]        | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
+| infinity6e[^15]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
+| infinity6c[^16]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
+| infinity6f[^17]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
 
 _✔️ - supported, ↻ - in development, ✗ - unsupported, ⁿ/ₐ - not supported by hardware_
 
 _* At the moment, only text, 24-bit and 32-bit RGB overlays are handled, matricial formats and covers are to follow_
 
-[^1]: CV181x[C/H], SG2000 and SG2002
-[^2]: GM813[5/6/8](S)
+[^1]: CV181x\[C/H\], SG200\[0/2\]
+[^2]: GM813\[5/6/8\]\(S\)
 [^3]: Hi3516AV100 and Hi3516DV100
 [^4]: Hi3516CV100, Hi3518AV100, Hi3518CV100 and Hi3518EV100
 [^5]: Hi3516CV200 and Hi3518EV20\[0/1\]
@@ -51,11 +53,13 @@ _* At the moment, only text, 24-bit and 32-bit RGB overlays are handled, matrici
 [^8]: Hi3516DV200, Hi3516EV200/300 and Hi3518EV300
 [^9]: GK7202V300, GK7205V200/300 and GK7605V100
 [^10]: Hi3516AV200 and Hi3519V101
-[^11]: SSC323, SSC325(D/DE) and SSC327(D/DE/Q)
-[^12]: SSC33[3/5/7](DE)
-[^13]: SSC30K\[D/Q\], SSC336\[D/Q\], SSC338\[D/G/Q\] and SSC339G
-[^14]: SSC377(D/DE/QE) or SSC378\[DE/QE\]
-[^15]: SSC379G
+[^11]: RV110\[3/7/8/9\] and RV1106\(G2/G3\)
+[^12]: MSC313E, MSC316\[DC/DE/QE\] and MSC318
+[^13]: SSC323, SSC325\(D/DE\) and SSC327\(D/DE/Q\)
+[^14]: SSC33\[3/5/7\]\(DE\)
+[^15]: SSC30K\[D/Q\], SSC336\[D/Q\], SSC338\[D/G/Q\] and SSC339G
+[^16]: SSC377\(D/DE/QE\) or SSC378\[DE/QE\]
+[^17]: SSC379G
 
 
 ### Documentation
@@ -65,8 +69,6 @@ _* At the moment, only text, 24-bit and 32-bit RGB overlays are handled, matrici
 
 ### Roadmap
 
-- [ ] Writing config changes
-- [ ] Safe mode feature
 - [ ] Additional WebUI functionalities
 - [ ] Motion detection reimplementation
 - [ ] Hardware support improvement (older SoCs, general usage chips)

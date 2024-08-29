@@ -11,10 +11,13 @@ int jpeg_init() {
     pthread_mutex_lock(&jpeg_mutex);
 
     switch (plat) {
+#if defined(__arm__)
         case HAL_PLATFORM_GM: goto active;
+#elif defined(__mips__)
         case HAL_PLATFORM_T31:
             if (app_config.mjpeg_enable) goto active;
             break;
+#endif
     }
 
     jpeg_index = take_next_free_channel(false);
@@ -124,7 +127,6 @@ int jpeg_get(short width, short height, char quality, char grayscale,
         if (jpeg->data)
             free(jpeg->data);
         jpeg->data = NULL;
-        return EXIT_FAILURE;
     }
 
     pthread_mutex_unlock(&jpeg_mutex);

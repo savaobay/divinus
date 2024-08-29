@@ -71,10 +71,13 @@ void mp4_set_config(short width, short height, char framerate, char acodec,
     aud_bitrate = bitrate;
     aud_channels = channels;
     aud_samplerate = srate;
-    aud_framesize = 
-        (aud_samplerate >= 32000 ? 144 : 72) *
-        (aud_bitrate * 1000) / 
-        aud_samplerate;
+    if (aud_samplerate > 0) {
+        aud_framesize = 
+            (aud_samplerate >= 32000 ? 144 : 72) *
+            (aud_bitrate * 1000) / 
+            aud_samplerate;
+    } else aud_framesize = 384;
+
 }
 
 void mp4_set_sps(const char *nal_data, const uint32_t nal_len, char is_h265) {
@@ -106,7 +109,7 @@ enum BufError mp4_set_slice(const char *nal_data, const uint32_t nal_len,
     samples_info[0].flags = is_iframe ? 0 : 65536;
     samples_info[1].size = buf_aud.offset;
     samples_info[1].duration = default_sample_size * 
-        buf_aud.offset / (aud_bitrate * 25 / 6.f);
+        buf_aud.offset / (aud_bitrate * 25 / 6);
 
     buf_moof.offset = 0;
     err = write_moof(

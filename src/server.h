@@ -1,9 +1,7 @@
 #pragma once
 
 #include <arpa/inet.h>
-#include <ctype.h>
 #include <errno.h>
-#include <linux/version.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <regex.h>
@@ -24,12 +22,6 @@
 #include "mp4/nal.h"
 #include "region.h"
 #include "watchdog.h"
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 4, 0)
-#include <sys/sysinfo.h>
-#else
-#include <linux/sysinfo.h>
-#endif
 
 #define IMPORT_BIN(sect, file, sym) asm (\
     ".section " #sect "\n"                  /* Change section */\
@@ -52,7 +44,7 @@
     ".balign 4\n"                           /* Word alignment */\
     ".section \".text\"\n")                 /* Restore section */
 
-extern char keepRunning;
+extern char graceful, keepRunning;
 
 int start_server();
 int stop_server();

@@ -9,13 +9,13 @@ void watchdog_reset(void) {
 
 int watchdog_start(int timeout) {
     if (fd) return EXIT_SUCCESS;
-    char* paths[] = {"/dev/watchdog0", "/dev/watchdog"};
-    char **path = paths;
+    const char* paths[] = {"/dev/watchdog0", "/dev/watchdog"};
+    const char **path = paths;
 
     while (*path) {
         if (access(*path++, F_OK)) continue;
         if ((fd = open(*(path - 1), O_WRONLY)) == -1)
-            HAL_ERROR("watchdog", "%s could not be opened!\n", *(path - 1), fd--);
+            HAL_ERROR("watchdog", "%s could not be opened!\n", *(path - 1));
         break;
     } if (!fd) HAL_ERROR("watchdog", "No matching device has been found!\n");
 

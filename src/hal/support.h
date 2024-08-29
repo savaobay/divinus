@@ -10,29 +10,34 @@
 #include "star/i6f_hal.h"
 #elif defined(__mips__)
 #include "inge/t31_hal.h"
+#elif defined(__riscv) || defined(__riscv__)
+#include "plus/cvi_hal.h"
 #endif
 
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/version.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
-#ifndef CEILING
-#define CEILING_POS(X) ((X-(int)(X)) > 0 ? (int)(X+1) : (int)(X))
-#define CEILING_NEG(X) (int)(X)
-#define CEILING(X) ( ((X) > 0) ? CEILING_POS(X) : CEILING_NEG(X) )
+// Newer versions of musl have UAPI headers 
+// that redefine struct sysinfo
+#if defined(__GLIBC__) || defined(__UCLIBC__) \
+    || LINUX_VERSION_CODE < KERNEL_VERSION(3, 4, 0)
+#include <sys/sysinfo.h>
+#else
+#include <linux/sysinfo.h>
 #endif
 
-#define starts_with(a, b) !strncmp(a, b, strlen(b))
-#define equals(a, b) !strcmp(a, b)
-#define equals_case(a, b) !strcasecmp(a, b)
-#define ends_with(a, b)      \
-    size_t alen = strlen(a); \
-    size_t blen = strlen(b); \
-    return (alen > blen) && strcmp(a + alen - blen, b);
-#define empty(x) (x[0] == '\0')
+#ifdef __UCLIBC__
+extern int asprintf(char **restrict strp, const char *restrict fmt, ...);
+#endif
+
+extern int sysinfo (struct sysinfo *__info);
+
+void *mmap64(void *start, size_t len, int prot, int flags, int fd, off_t off);
 
 extern void *aud_thread;
 extern void *isp_thread;
@@ -41,7 +46,8 @@ extern void *vid_thread;
 extern char chnCount;
 extern hal_chnstate *chnState;
 
-extern char chipId[16];
+extern char chip[16];
+extern char family[32];
 extern hal_platform plat;
 extern int series;
 
@@ -60,5 +66,3 @@ extern hal_chnstate t31_state[T31_VENC_CHN_NUM];
 
 bool hal_registry(unsigned int addr, unsigned int *data, hal_register_op op);
 void hal_identify(void);
-
-void *mmap64(void *start, size_t len, int prot, int flags, int fd, off_t off);

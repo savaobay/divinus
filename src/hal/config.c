@@ -6,7 +6,7 @@ enum ConfigError find_sections(struct IniConfig *ini) {
 
     regex_t regex;
     if (compile_regex(&regex, REG_SECTION) < 0) {
-        printf("compile_regex error\n");
+        HAL_DANGER("config", "Error compiling regex!\n");
         return CONFIG_REGEX_ERROR;
     };
 
@@ -71,7 +71,7 @@ enum ConfigError parse_param_value(
     ssize_t reg_buf_len = sprintf(reg_buf, REG_PARAM, param_name);
     reg_buf[reg_buf_len] = 0;
     if (compile_regex(&regex, reg_buf) < 0) {
-        printf("compile_regex error\n");
+        HAL_DANGER("config", "Error compiling regex!\n");
         return CONFIG_REGEX_ERROR;
     };
 
@@ -118,7 +118,7 @@ enum ConfigError parse_enum(
         }
 
     // print error
-    printf(
+    HAL_DANGER("config",
         "Can't parse param '%s' value '%s'. Is not a number and is not in "
         "possible values: ",
         param_name, param_value);
@@ -167,7 +167,7 @@ enum ConfigError parse_int(
     }
     if (!*end) {
         if (res < min || res > max) {
-            printf(
+            HAL_DANGER("config",
                 "Can't parse param '%s' value '%s'. Value '%ld' is not in a "
                 "range [%d; %d].",
                 param_name, param_value, res, min, max);
@@ -185,7 +185,7 @@ enum ConfigError parse_int(
         return CONFIG_OK;
     }
 
-    printf(
+    HAL_DANGER("config",
         "Can't parse param '%s' value '%s'. Is not a integer (dec or hex) "
         "number.",
         param_name, param_value);
@@ -208,7 +208,7 @@ enum ConfigError parse_array(
         if (*end)
             res = strtol(token, &end, 16);
         if (*end) {
-            printf(
+            HAL_DANGER("config",
                 "Can't parse param '%s' value '%s'. Is not a integer (dec or "
                 "hex) number.",
                 param_name, token);
@@ -238,9 +238,9 @@ enum ConfigError parse_uint64(
     }
     if (!*end) {
         if (res < min || res > max) {
-            printf(
-                "Can't parse param '%s' value '%s'. Value '%lld' is not in a "
-                "range [%lld; %lld].\n",
+            HAL_DANGER("config",
+                "Can't parse param '%s' value '%s'. Value '%lu' is not in a "
+                "range [%lu; %lu].\n",
                 param_name, param_value, res, min, max);
             return CONFIG_PARAM_ISNT_IN_RANGE;
         }
@@ -256,7 +256,7 @@ enum ConfigError parse_uint64(
         return CONFIG_OK;
     }
 
-    printf(
+    HAL_DANGER("config",
         "Can't parse param '%s' value '%s'. Is not a integer (dec or hex) "
         "number.",
         param_name, param_value);
@@ -276,31 +276,30 @@ enum ConfigError parse_uint32(
     return CONFIG_OK;
 }
 
-bool open_config(struct IniConfig *ini, const char *path) {
-    FILE *file = fopen(path, "rb");
-    if (!file)
+bool open_config(struct IniConfig *ini, FILE **file) {
+    if (!*file)
         return false;
 
-    fseek(file, 0, SEEK_END);
-    size_t length = ftell(file);
-    fseek(file, 0, SEEK_SET);
+    fseek(*file, 0, SEEK_END);
+    size_t length = ftell(*file);
+    fseek(*file, 0, SEEK_SET);
 
     ini->str = malloc(length + 1);
     if (!ini->str) {
-        printf("Can't allocate buf in parse_sensor_config\n");
-        fclose(file);
+        HAL_DANGER("config", "Cannot allocate buffer to hold the config file!\n");
+        fclose(*file);
         return false;
     }
 
-    size_t n = fread(ini->str, 1, length, file);
+    size_t n = fread(ini->str, 1, length, *file);
     if (n != length) {
-        printf("Can't read all file %s\n", path);
-        fclose(file);
+        HAL_DANGER("config", "Cannot read the whole config file!\n");
+        fclose(*file);
         free(ini->str);
         return false;
     }
 
-    fclose(file);
+    fclose(*file);
     ini->str[length] = 0;
 
     return true;

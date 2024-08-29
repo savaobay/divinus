@@ -93,6 +93,12 @@ int v2_audio_init(int samplerate)
     if (ret = v2_aud.fnEnableDevice(_v2_aud_dev))
         return ret;
     
+    {
+        v2_aud_para para;
+        para.userFrmDepth = 30;
+        if (ret = v2_aud.fnSetChannelParam(_v2_aud_dev, _v2_aud_chn, &para))
+            return ret;
+    }
     if (ret = v2_aud.fnEnableChannel(_v2_aud_dev, _v2_aud_chn))
         return ret;
 
@@ -637,7 +643,7 @@ int v2_video_snapshot_grab(char index, hal_jpegdata *jpeg)
     }
 
     unsigned int count = 1;
-    if (v2_venc.fnStartReceivingEx(index, &count)) {
+    if (ret = v2_venc.fnStartReceivingEx(index, &count)) {
         HAL_DANGER("v2_venc", "Requesting one frame "
             "%d failed with %#x!\n", index, ret);
         goto abort;
@@ -660,7 +666,7 @@ int v2_video_snapshot_grab(char index, hal_jpegdata *jpeg)
 
     if (FD_ISSET(fd, &readFds)) {
         v2_venc_stat stat;
-        if (v2_venc.fnQuery(index, &stat)) {
+        if (ret = v2_venc.fnQuery(index, &stat)) {
             HAL_DANGER("v2_venc", "Querying the encoder channel "
                 "%d failed with %#x!\n", index, ret);
             goto abort;
