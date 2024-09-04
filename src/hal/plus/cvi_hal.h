@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/ioctl.h>
+#include <sys/select.h>
 #include <unistd.h>
 
 extern char keepRunning;
@@ -44,8 +45,6 @@ int cvi_region_create(char handle, hal_rect rect, short opacity);
 void cvi_region_destroy(char handle);
 int cvi_region_setbitmap(int handle, hal_bitmap *bitmap);
 
-void cvi_sensor_deconfig(void);
-int cvi_sensor_config(void);
 void cvi_sensor_deinit(void);
 int cvi_sensor_init(char *name, char *obj);
 

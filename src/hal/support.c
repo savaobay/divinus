@@ -152,6 +152,20 @@ void hal_identify(void) {
                 plat = HAL_PLATFORM_UNK;
                 break;
         }
+    } else if (!access("/proc/mstar/kernel", 0) && 
+        hal_registry(0x1F2025A4, &val, OP_READ)) {
+        plat = HAL_PLATFORM_I3;
+        switch (val & 0xF000) {
+            case 0x6000: strcpy(chip, "MSC313E"); break;
+            case 0x7000: strcpy(chip, "MSC316DC"); break;
+            case 0x8000: strcpy(chip, "MSC318"); break;
+        }
+        strcpy(family, "infinity3");
+        chnCount = I3_VENC_CHN_NUM;
+        chnState = (hal_chnstate*)i3_state;
+        //aud_thread = i3_audio_thread;
+        //vid_thread = i3_video_thread;
+        return;
     }
     
     if (!access("/dev/vpd", F_OK)) {
@@ -167,6 +181,24 @@ void hal_identify(void) {
         chnState = (hal_chnstate*)gm_state;
         aud_thread = gm_audio_thread;
         vid_thread = gm_video_thread;
+        return;
+    }
+
+    if (!access("/sys/devices/platform/ak39-uart.0", F_OK) &&
+        hal_registry(0x08000000, &val, OP_READ)) {
+        plat = HAL_PLATFORM_AK;
+        strcpy(chip, "AK3918E");
+        switch(val) {
+            case 0x20120100: strcat(chip, "V100"); break;
+            case 0x20150200: strcat(chip, "V200"); break;
+            case 0x20160100: strcat(chip, "V300"); break;
+            case 0x20160101: strcat(chip, "V330"); break;
+        }
+        strcpy(family, "anyka");
+        chnCount = AK_VENC_CHN_NUM;
+        chnState = (hal_chnstate*)ak_state;
+        //aud_thread = ak_audio_thread;
+        vid_thread = ak_video_thread;
         return;
     }
 #endif
