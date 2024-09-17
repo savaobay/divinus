@@ -230,7 +230,8 @@ int v4_pipeline_create(void)
     {
         v4_sys_oper mode[4];
         v4_sys.fnGetViVpssMode((v4_sys_oper*)mode);
-        mode[_v4_vi_dev] = V4_SYS_OPER_VIOFF_VPSSON;
+        for (char i = 0; i < 4; i++)
+            mode[i] = V4_SYS_OPER_VIOFF_VPSSON;
         if (ret = v4_sys.fnSetViVpssMode((v4_sys_oper*)mode))
             return ret;
     }
@@ -287,8 +288,8 @@ int v4_pipeline_create(void)
         channel.mirror = 0;
         channel.flip = 0;
         channel.depth = 0;
-        channel.srcFps = v4_config.isp.framerate;
-        channel.dstFps = v4_config.isp.framerate;
+        channel.srcFps = -1;
+        channel.dstFps = -1;
         if (ret = v4_vi.fnSetChannelConfig(_v4_vi_pipe, _v4_vi_chn, &channel))
             return ret;
     }
@@ -331,8 +332,8 @@ int v4_pipeline_create(void)
         group.dest.height = v4_config.isp.capt.height;
         group.pixFmt = V4_PIXFMT_YVU420SP;
         group.hdr = V4_HDR_SDR8;
-        group.srcFps = v4_config.isp.framerate;
-        group.dstFps = v4_config.isp.framerate;
+        group.srcFps = -1;
+        group.dstFps = -1;
         group.nRedOn = 1;
         group.nRed.mode = V4_VPSS_NMODE_VIDEO;
         group.nRed.compress = V4_COMPR_NONE;
@@ -358,8 +359,8 @@ int v4_pipeline_create(void)
 void v4_pipeline_destroy(void)
 {
     v4_isp.fnExit(_v4_vi_pipe);
-    v4_isp.fnUnregisterAE(_v4_vi_pipe, &v4_ae_lib);
     v4_isp.fnUnregisterAWB(_v4_vi_pipe, &v4_awb_lib);
+    v4_isp.fnUnregisterAE(_v4_vi_pipe, &v4_ae_lib);
 
     v4_snr_drv.obj->pfnUnRegisterCallback(_v4_vi_pipe, &v4_ae_lib, &v4_awb_lib);
 
@@ -462,42 +463,87 @@ int v4_region_setbitmap(int handle, hal_bitmap *bitmap)
 
 int v4_sensor_config(void) {
     int fd;
-    v4_snr_dev config;
-    memset(&config, 0, sizeof(config));
-    config.device = 0;
-    config.input = v4_config.input_mode;
-    config.rect.width = v4_config.isp.capt.width;
-    config.rect.height = v4_config.isp.capt.height;
-    if (config.input == V4_SNR_INPUT_MIPI)
-        memcpy(&config.mipi, &v4_config.mipi, sizeof(v4_snr_mipi));
-    else if (config.input == V4_SNR_INPUT_LVDS)
-        memcpy(&config.lvds, &v4_config.lvds, sizeof(v4_snr_lvds));
+    char v4a_device = 0;
+    if (EQUALS(chip, "Hi3516AV300") ||
+        EQUALS(chip, "Hi3516DV300") ||
+        EQUALS(chip, "Hi3516CV500"))
+        v4a_device = 1;
 
-    if (!access(v4_snr_endp, F_OK))
-        fd = open(v4_snr_endp, O_RDWR);
-    else fd = open("/dev/mipi", O_RDWR);
-    if (fd < 0)
-        HAL_ERROR("v4_snr", "Opening imaging device has failed!\n");
+    if (v4a_device) {
+        v4a_snr_dev config;
+        memset(&config, 0, sizeof(config));
+        config.device = 0;
+        config.input = v4_config.input_mode;
+        config.rect.width = v4_config.isp.capt.width;
+        config.rect.height = v4_config.isp.capt.height;
+        if (config.input == V4_SNR_INPUT_MIPI)
+            memcpy(&config.mipi, &v4_config.mipi, sizeof(v4_snr_mipi));
+        else if (config.input == V4_SNR_INPUT_LVDS)
+            memcpy(&config.lvds, &v4_config.lvds, sizeof(v4_snr_lvds));
 
-    int laneMode = 0;
-    ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CONF_HSMODE, int), &laneMode);
+        if (!access(v4_snr_endp, F_OK))
+            fd = open(v4_snr_endp, O_RDWR);
+        else fd = open("/dev/mipi", O_RDWR);
+        if (fd < 0)
+            HAL_ERROR("v4_snr", "Opening imaging device has failed!\n");
 
-    ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CLKON_MIPI, unsigned int), &config.device);
+        int laneMode = 0;
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CONF_HSMODE, int), &laneMode);
 
-    ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_RST_MIPI, unsigned int), &config.device);
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CLKON_MIPI, unsigned int), &config.device);
 
-    ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CLKON_SENS, unsigned int), &config.device);
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_RST_MIPI, unsigned int), &config.device);
 
-    ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_RST_SENS, unsigned int), &config.device);
-    
-    if (ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CONF_DEV, v4_snr_dev), &config))
-        HAL_ERROR("v4_snr", "Configuring imaging device has failed!\n");
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CLKON_SENS, unsigned int), &config.device);
 
-    ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_UNRST_MIPI, unsigned int), &config.device);
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_RST_SENS, unsigned int), &config.device);
+        
+        if (ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CONF_DEV, v4a_snr_dev), &config))
+            HAL_ERROR("v4_snr", "Configuring imaging device has failed!\n");
 
-    ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_UNRST_SENS, unsigned int), &config.device);
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_UNRST_MIPI, unsigned int), &config.device);
 
-    close(fd);
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_UNRST_SENS, unsigned int), &config.device);
+
+        close(fd);
+    } else {
+        v4_snr_dev config;
+        memset(&config, 0, sizeof(config));
+        config.device = 0;
+        config.input = v4_config.input_mode;
+        config.rect.width = v4_config.isp.capt.width;
+        config.rect.height = v4_config.isp.capt.height;
+        if (config.input == V4_SNR_INPUT_MIPI)
+            memcpy(&config.mipi, &v4_config.mipi, sizeof(v4_snr_mipi));
+        else if (config.input == V4_SNR_INPUT_LVDS)
+            memcpy(&config.lvds, &v4_config.lvds, sizeof(v4_snr_lvds));
+
+        if (!access(v4_snr_endp, F_OK))
+            fd = open(v4_snr_endp, O_RDWR);
+        else fd = open("/dev/mipi", O_RDWR);
+        if (fd < 0)
+            HAL_ERROR("v4_snr", "Opening imaging device has failed!\n");
+
+        int laneMode = 0;
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CONF_HSMODE, int), &laneMode);
+
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CLKON_MIPI, unsigned int), &config.device);
+
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_RST_MIPI, unsigned int), &config.device);
+
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CLKON_SENS, unsigned int), &config.device);
+
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_RST_SENS, unsigned int), &config.device);
+        
+        if (ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_CONF_DEV, v4_snr_dev), &config))
+            HAL_ERROR("v4_snr", "Configuring imaging device has failed!\n");
+
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_UNRST_MIPI, unsigned int), &config.device);
+
+        ioctl(fd, _IOW(V4_SNR_IOC_MAGIC, V4_SNR_CMD_UNRST_SENS, unsigned int), &config.device);
+
+        close(fd);
+    }
 
     return EXIT_SUCCESS;
 }
@@ -699,9 +745,7 @@ void v4_video_request_idr(char index)
 
 int v4_video_snapshot_grab(char index, hal_jpegdata *jpeg)
 {
-    int ret, epollEvt;
-    struct epoll_event events[5], event = { .events = EPOLLIN|EPOLLET };
-    int epollFd = epoll_create1(0);
+    int ret;
 
     if (ret = v4_channel_bind(index)) {
         HAL_DANGER("v4_venc", "Binding the encoder channel "
@@ -717,15 +761,21 @@ int v4_video_snapshot_grab(char index, hal_jpegdata *jpeg)
     }
 
     int fd = v4_venc.fnGetDescriptor(index);
-    event.data.fd = fd;
-    if (ret = epoll_ctl(epollFd, EPOLL_CTL_ADD, fd, &event)) {
-        HAL_DANGER("v4_venc", "Adding the encoder descriptor to "
-            "the polling set failed with %#x!\n", ret);
+
+    struct timeval timeout = { .tv_sec = 2, .tv_usec = 0 };
+    fd_set readFds;
+    FD_ZERO(&readFds);
+    FD_SET(fd, &readFds);
+    ret = select(fd + 1, &readFds, NULL, NULL, &timeout);
+    if (ret < 0) {
+        HAL_DANGER("v4_venc", "Select operation failed!\n");
+        goto abort;
+    } else if (ret == 0) {
+        HAL_DANGER("v4_venc", "Capture stream timed out!\n");
         goto abort;
     }
 
-    epollEvt = epoll_wait(epollFd, events, 5, 2000);
-    for (int e = 0; e < epollEvt; e++) {
+    if (FD_ISSET(fd, &readFds)) {
         v4_venc_stat stat;
         if (ret = v4_venc.fnQuery(index, &stat)) {
             HAL_DANGER("v4_venc", "Querying the encoder channel "
@@ -776,9 +826,6 @@ abort:
         v4_venc.fnFreeStream(index, &strm);
     }
 
-    if (close(epollFd))
-        HAL_DANGER("v4_venc", "Closing the polling descriptor failed!\n");
-
     v4_venc.fnFreeDescriptor(index);
 
     v4_venc.fnStopReceiving(index);
@@ -790,14 +837,7 @@ abort:
 
 void *v4_video_thread(void)
 {
-    int ret, epollEvt;
-    struct epoll_event events[5], event = { .events = EPOLLIN|EPOLLET };
-    int epollFd = epoll_create1(0);
-
-    if (epollFd < 0) {
-        HAL_DANGER("v4_venc", "Creating the polling descriptor failed!\n");
-        return (void*)0;
-    }
+    int ret, maxFd = 0;
 
     for (int i = 0; i < V4_VENC_CHN_NUM; i++) {
         if (!v4_state[i].enable) continue;
@@ -809,12 +849,9 @@ void *v4_video_thread(void)
             return (void*)0;
         }
         v4_state[i].fileDesc = ret;
-        event.data.fd = ret;
-        if (ret = epoll_ctl(epollFd, EPOLL_CTL_ADD, ret, &event)) {
-            HAL_DANGER("v4_venc", "Adding the encoder descriptor to "
-                "the polling set failed with %#x!\n", ret);
-            return (void*)0;
-        }
+
+        if (maxFd <= v4_state[i].fileDesc)
+            maxFd = v4_state[i].fileDesc;
     }
 
     v4_venc_stat stat;
@@ -823,12 +860,27 @@ void *v4_video_thread(void)
     fd_set readFds;
 
     while (keepRunning) {
-        epollEvt = epoll_wait(epollFd, events, 5, 2000);
-        for (int e = 0; e < epollEvt; e++) {
+        FD_ZERO(&readFds);
+        for(int i = 0; i < V4_VENC_CHN_NUM; i++) {
+            if (!v4_state[i].enable) continue;
+            if (!v4_state[i].mainLoop) continue;
+            FD_SET(v4_state[i].fileDesc, &readFds);
+        }
+
+        timeout.tv_sec = 2;
+        timeout.tv_usec = 0;
+        ret = select(maxFd + 1, &readFds, NULL, NULL, &timeout);
+        if (ret < 0) {
+            HAL_DANGER("v4_venc", "Select operation failed!\n");
+            break;
+        } else if (ret == 0) {
+            HAL_WARNING("v4_venc", "Main stream loop timed out!\n");
+            continue;
+        } else {
             for (int i = 0; i < V4_VENC_CHN_NUM; i++) {
                 if (!v4_state[i].enable) continue;
                 if (!v4_state[i].mainLoop) continue;
-                if (v4_state[i].fileDesc == events[e].data.fd) {
+                if (FD_ISSET(v4_state[i].fileDesc, &readFds)) {
                     memset(&stream, 0, sizeof(stream));
                     
                     if (ret = v4_venc.fnQuery(i, &stat)) {
@@ -889,14 +941,10 @@ void *v4_video_thread(void)
                     }
                     free(stream.packet);
                     stream.packet = NULL;
-                    break;
                 }
             }
         }
     }
-
-    if (close(epollFd))
-        HAL_DANGER("v4_venc", "Closing the polling descriptor failed!\n");
 
     HAL_INFO("v4_venc", "Shutting down encoding thread...\n");
 }

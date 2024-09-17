@@ -269,8 +269,8 @@ int v1_pipeline_create(void)
         channel.compress = V1_COMPR_NONE;
         channel.mirror = 0;
         channel.flip = 0;
-        channel.srcFps = v1_config.img.framerate;
-        channel.dstFps = v1_config.img.framerate;
+        channel.srcFps = -1;
+        channel.dstFps = -1;
         if (ret = v1_vi.fnSetChannelConfig(_v1_vi_chn, &channel))
             return ret;
     }
@@ -309,6 +309,12 @@ int v1_pipeline_create(void)
 
 void v1_pipeline_destroy(void)
 {
+    v1_isp.fnExit();
+    v1_isp.fnUnregisterAWB(&v1_awb_lib);
+    v1_isp.fnUnregisterAE(&v1_ae_lib);
+
+    v1_snr_drv.fnUnRegisterCallback();
+
     for (char grp = 0; grp < V1_VPSS_GRP_NUM; grp++)
     {
         for (char chn = 0; chn < V1_VPSS_CHN_NUM; chn++)
@@ -330,12 +336,6 @@ void v1_pipeline_destroy(void)
     v1_vi.fnDisableChannel(_v1_vi_chn);
 
     v1_vi.fnDisableDevice(_v1_vi_dev);
-
-    v1_isp.fnExit();
-    v1_isp.fnUnregisterAE(&v1_ae_lib);
-    v1_isp.fnUnregisterAWB(&v1_awb_lib);
-
-    v1_snr_drv.fnUnRegisterCallback();
 }
 
 int v1_region_create(char handle, hal_rect rect, short opacity)
@@ -448,7 +448,7 @@ int v1_video_create(char index, hal_vidconfig *config)
         channel.attrib.jpg.maxPic.width = config->width;
         channel.attrib.jpg.maxPic.height = config->height;
         channel.attrib.jpg.bufSize =
-            config->height * config->width * 2;
+            ALIGN_UP(config->height, 16) * ALIGN_UP(config->width, 16);
         channel.attrib.jpg.byFrame = 1;
         channel.attrib.jpg.fieldOrFrame = 0;
         channel.attrib.jpg.priority = 0;
@@ -460,7 +460,7 @@ int v1_video_create(char index, hal_vidconfig *config)
         channel.attrib.mjpg.maxPic.width = config->width;
         channel.attrib.mjpg.maxPic.height = config->height;
         channel.attrib.mjpg.bufSize = 
-            config->height * config->width * 2;
+            ALIGN_UP(config->height, 16) * ALIGN_UP(config->width, 16);
         channel.attrib.mjpg.byFrame = 1;
         channel.attrib.mjpg.mainStrmOn = 1;
         channel.attrib.mjpg.fieldOrFrame = 0;
@@ -471,7 +471,7 @@ int v1_video_create(char index, hal_vidconfig *config)
             case HAL_VIDMODE_CBR:
                 channel.rate.mode = V1_VENC_RATEMODE_MJPGCBR;
                 channel.rate.mjpgCbr = (v1_venc_rate_mjpgcbr){ .statTime = 1, .srcFps = config->framerate,
-                    .dstFps = config->framerate, .bitrate = config->bitrate, .avgLvl = 1 }; break;
+                    .dstFps = config->framerate, .bitrate = config->bitrate, .avgLvl = 0 }; break;
             case HAL_VIDMODE_VBR:
                 channel.rate.mode = V1_VENC_RATEMODE_MJPGVBR;
                 channel.rate.mjpgVbr = (v1_venc_rate_mjpgvbr){ .statTime = 1, .srcFps = config->framerate,
@@ -490,12 +490,12 @@ int v1_video_create(char index, hal_vidconfig *config)
         attrib = &channel.attrib.h264;
         switch (config->mode) {
             case HAL_VIDMODE_CBR:
-                channel.rate.mode = V1_VENC_RATEMODE_H264CBR;
+                channel.rate.mode = V1_VENC_RATEMODE_H264CBRv2;
                 channel.rate.h264Cbr = (v1_venc_rate_h264cbr){ .gop = config->gop,
                     .statTime = 1, .srcFps = config->framerate, .dstFps = config->framerate,
-                    .bitrate = config->bitrate, .avgLvl = 1 }; break;
+                    .bitrate = config->bitrate, .avgLvl = 0 }; break;
             case HAL_VIDMODE_VBR:
-                channel.rate.mode = V1_VENC_RATEMODE_H264VBR;
+                channel.rate.mode = V1_VENC_RATEMODE_H264VBRv2;
                 channel.rate.h264Vbr = (v1_venc_rate_h264vbr){ .gop = config->gop,
                     .statTime = 1, .srcFps = config->framerate, .dstFps = config->framerate, 
                     .maxBitrate = MAX(config->bitrate, config->maxBitrate), .maxQual = config->maxQual,
@@ -511,9 +511,9 @@ int v1_video_create(char index, hal_vidconfig *config)
     } else HAL_ERROR("v1_venc", "This codec is not supported by the hardware!");
     attrib->maxPic.width = config->width;
     attrib->maxPic.height = config->height;
-    attrib->bufSize = config->height * config->width * 2;
+    attrib->bufSize = config->height * config->width;
     attrib->profile = MIN(config->profile, 1);
-    attrib->byFrame = 0;
+    attrib->byFrame = 1;
     attrib->fieldOn = 0;
     attrib->mainStrmOn = 1;
     attrib->priority = 0;
@@ -591,9 +591,7 @@ void v1_video_request_idr(char index)
 
 int v1_video_snapshot_grab(char index, hal_jpegdata *jpeg)
 {
-    int ret, epollEvt;
-    struct epoll_event events[5], event = { .events = EPOLLIN|EPOLLET };
-    int epollFd = epoll_create1(0);
+    int ret;
 
     if (ret = v1_channel_bind(index)) {
         HAL_DANGER("v1_venc", "Binding the encoder channel "
@@ -609,15 +607,21 @@ int v1_video_snapshot_grab(char index, hal_jpegdata *jpeg)
     }
 
     int fd = v1_venc.fnGetDescriptor(index);
-    event.data.fd = fd;
-    if (ret = epoll_ctl(epollFd, EPOLL_CTL_ADD, fd, &event)) {
-        HAL_DANGER("v1_venc", "Adding the encoder descriptor to "
-            "the polling set failed with %#x!\n", ret);
+
+    struct timeval timeout = { .tv_sec = 2, .tv_usec = 0 };
+    fd_set readFds;
+    FD_ZERO(&readFds);
+    FD_SET(fd, &readFds);
+    ret = select(fd + 1, &readFds, NULL, NULL, &timeout);
+    if (ret < 0) {
+        HAL_DANGER("v1_venc", "Select operation failed!\n");
+        goto abort;
+    } else if (ret == 0) {
+        HAL_DANGER("v1_venc", "Capture stream timed out!\n");
         goto abort;
     }
 
-    epollEvt = epoll_wait(epollFd, events, 5, 2000);
-    for (int e = 0; e < epollEvt; e++) {
+    if (FD_ISSET(fd, &readFds)) {
         v1_venc_stat stat;
         if (ret = v1_venc.fnQuery(index, &stat)) {
             HAL_DANGER("v1_venc", "Querying the encoder channel "
@@ -668,9 +672,6 @@ abort:
         v1_venc.fnFreeStream(index, &strm);
     }
 
-    if (close(epollFd))
-        HAL_DANGER("v1_venc", "Closing the polling descriptor failed!\n");
-
     v1_venc.fnStopReceiving(index);
 
     v1_channel_unbind(index);
@@ -680,14 +681,7 @@ abort:
 
 void *v1_video_thread(void)
 {
-    int ret, epollEvt;
-    struct epoll_event events[5], event = { .events = EPOLLIN|EPOLLET };
-    int epollFd = epoll_create1(0);
-
-    if (epollFd < 0) {
-        HAL_DANGER("v1_venc", "Creating the polling descriptor failed!\n");
-        return (void*)0;
-    }
+    int ret, maxFd = 0;
 
     for (int i = 0; i < V1_VENC_CHN_NUM; i++) {
         if (!v1_state[i].enable) continue;
@@ -699,24 +693,38 @@ void *v1_video_thread(void)
             return (void*)0;
         }
         v1_state[i].fileDesc = ret;
-        event.data.fd = ret;
-        if (ret = epoll_ctl(epollFd, EPOLL_CTL_ADD, ret, &event)) {
-            HAL_DANGER("v1_venc", "Adding the encoder descriptor to "
-                "the polling set failed with %#x!\n", ret);
-            return (void*)0;
-        }
+
+        if (maxFd <= v1_state[i].fileDesc)
+            maxFd = v1_state[i].fileDesc;
     }
 
     v1_venc_stat stat;
     v1_venc_strm stream;
+    struct timeval timeout;
+    fd_set readFds;
 
     while (keepRunning) {
-        epollEvt = epoll_wait(epollFd, events, 5, 2000);
-        for (int e = 0; e < epollEvt; e++) {
+        FD_ZERO(&readFds);
+        for(int i = 0; i < V1_VENC_CHN_NUM; i++) {
+            if (!v1_state[i].enable) continue;
+            if (!v1_state[i].mainLoop) continue;
+            FD_SET(v1_state[i].fileDesc, &readFds);
+        }
+
+        timeout.tv_sec = 2;
+        timeout.tv_usec = 0;
+        ret = select(maxFd + 1, &readFds, NULL, NULL, &timeout);
+        if (ret < 0) {
+            HAL_DANGER("v1_venc", "Select operation failed!\n");
+            break;
+        } else if (ret == 0) {
+            HAL_WARNING("v1_venc", "Main stream loop timed out!\n");
+            continue;
+        } else {
             for (int i = 0; i < V1_VENC_CHN_NUM; i++) {
                 if (!v1_state[i].enable) continue;
                 if (!v1_state[i].mainLoop) continue;
-                if (v1_state[i].fileDesc == events[e].data.fd) {
+                if (FD_ISSET(v1_state[i].fileDesc, &readFds)) {
                     memset(&stream, 0, sizeof(stream));
                     
                     if (ret = v1_venc.fnQuery(i, &stat)) {
@@ -774,14 +782,10 @@ void *v1_video_thread(void)
                     }
                     free(stream.packet);
                     stream.packet = NULL;
-                    break;
                 }
             }
         }
     }
-
-    if (close(epollFd))
-        HAL_DANGER("v1_venc", "Closing the polling descriptor failed!\n");
 
     HAL_INFO("v1_venc", "Shutting down encoding thread...\n");
 }
@@ -825,7 +829,7 @@ int v1_system_init(char *snrConfig)
             v1_config.vichn.capt.height ? 
                 v1_config.vichn.capt.height : v1_config.videv.rect.height,
             V1_PIXFMT_YUV420SP, alignWidth);
-        pool.comm[0].blockCnt = 5;
+        pool.comm[0].blockCnt = 10;
 
         if (ret = v1_vb.fnConfigPool(&pool))
             return ret;

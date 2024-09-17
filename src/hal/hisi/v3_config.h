@@ -166,17 +166,44 @@ static enum ConfigError v3_parse_config_videv(
             return err;
     }
     {
-        const char *possible_values[] = {
-            "VI_DATA_SEQ_VUVU", "VI_DATA_SEQ_UVUV",
-            "VI_DATA_SEQ_UYVY", "VI_DATA_SEQ_VYUY",
-            "VI_DATA_SEQ_YUYV", "VI_DATA_SEQ_YVYU"};
-            const int count = sizeof(possible_values) / sizeof(const char *);
-            err = parse_enum(
-                ini, section, "data_seq", (void*)&device->seq,
-                possible_values, count, 0);
-            if (err != CONFIG_OK)
-                return err;
+        const char *possible_values[] = {"VI_DATA_SEQ_VUVU", "VI_DATA_SEQ_UVUV"};
+        const int count = sizeof(possible_values) / sizeof(const char *);
+        err = parse_enum(
+            ini, section, "data_seq", (void*)&device->seq,
+            possible_values, count, 0);
+        if (err == CONFIG_OK)
+            goto data_seq_ok;
     }
+    {
+        const char *possible_values[] = {"VI_DATA_SEQ_UYVY", "VI_DATA_SEQ_VYUY",
+            "VI_DATA_SEQ_YUYV", "VI_DATA_SEQ_YVYU"};
+        const int count = sizeof(possible_values) / sizeof(const char *);
+        err = parse_enum(
+            ini, section, "data_seq", (void*)&device->seq,
+            possible_values, count, 0);
+        if (err == CONFIG_OK)
+            goto data_seq_ok;
+    }
+    {
+        const char *possible_values[] = {"VI_INPUT_DATA_VUVU", "VI_INPUT_DATA_UVUV"};
+        const int count = sizeof(possible_values) / sizeof(const char *);
+        err = parse_enum(
+            ini, section, "data_seq", (void*)&device->seq,
+            possible_values, count, 0);
+        if (err == CONFIG_OK)
+            goto data_seq_ok;
+    }
+    {
+        const char *possible_values[] = {"VI_INPUT_DATA_UYVY", "VI_INPUT_DATA_VYUY",
+            "VI_INPUT_DATA_YUYV", "VI_INPUT_DATA_YVYU"};
+        const int count = sizeof(possible_values) / sizeof(const char *);
+        err = parse_enum(
+            ini, section, "data_seq", (void*)&device->seq,
+            possible_values, count, 0);
+        if (err != CONFIG_OK)
+            return err;
+    }
+data_seq_ok:
     {
         const char *possible_values[] = {"VI_VSYNC_FIELD", "VI_VSYNC_PULSE"};
         const int count = sizeof(possible_values) / sizeof(const char *);
@@ -198,7 +225,7 @@ static enum ConfigError v3_parse_config_videv(
     }
     {
         const char *possible_values[] = {
-            "VI_HSYNC_VALID_SIGNAL", "VI_HSYNC_PULSE"};
+            "VI_HSYNC_VALID_SINGNAL", "VI_HSYNC_PULSE"};
         const int count = sizeof(possible_values) / sizeof(const char *);
         err = parse_enum(
             ini, section, "hsync", (void*)&device->sync.hsyncPulse, possible_values,
@@ -218,7 +245,7 @@ static enum ConfigError v3_parse_config_videv(
     }
     {
         const char *possible_values[] = {
-            "VI_VSYNC_NORM_PULSE", "VI_VSYNC_VALID_SIGNAL"};
+            "VI_VSYNC_NORM_PULSE", "VI_VSYNC_VALID_SINGAL"};
         const int count = sizeof(possible_values) / sizeof(const char *);
         err = parse_enum(
             ini, section, "vsyncvalid", (void*)&device->sync.vsyncValid,
