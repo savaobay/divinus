@@ -16,6 +16,7 @@
 
 #include "app_config.h"
 #include "hal/types.h"
+#include "lib/spng.h"
 #include "jpeg.h"
 #include "media.h"
 #include "mp4/mp4.h"
@@ -25,13 +26,14 @@
 
 #define IMPORT_BIN(sect, file, sym) asm (\
     ".section " #sect "\n"                  /* Change section */\
-    ".balign 4\n"                           /* Word alignment */\
     ".global " #sym "\n"                    /* Export the object address */\
+    ".balign 4\n"                           /* Word alignment */\
     #sym ":\n"                              /* Define the object label */\
     ".incbin \"" file "\"\n"                /* Import the file */\
-    ".global _sizeof_" #sym "\n"            /* Export the object size */\
-    ".set _sizeof_" #sym ", . - " #sym "\n" /* Define the object size */\
-    ".balign 4\n"                           /* Word alignment */\
+    ".global " #sym "_size\n"               /* Export the object size */\
+    ".balign 8\n"                           /* Word alignment */\
+    #sym "_size:\n"                         /* Define the object size label */\
+    ".long " #sym "_size - " #sym "\n"      /* Define the object size */\
     ".section \".text\"\n")                 /* Restore section */
 
 #define IMPORT_STR(sect, file, sym) asm (\
@@ -49,8 +51,8 @@ extern char graceful, keepRunning;
 int start_server();
 int stop_server();
 
-void send_jpeg(char index, char *buf, ssize_t size);
-void send_mjpeg(char index, char *buf, ssize_t size);
+void send_jpeg_to_client(char index, char *buf, ssize_t size);
+void send_mjpeg_to_client(char index, char *buf, ssize_t size);
 void send_h26x_to_client(char index, hal_vidstream *stream);
 void send_mp3_to_client(char *buf, ssize_t size);
 void send_mp4_to_client(char index, hal_vidstream *stream, char isH265);

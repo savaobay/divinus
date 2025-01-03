@@ -74,6 +74,34 @@ void region_fill_formatted(char* str)
             strcat(out, m);
             opos += strlen(m);
         }
+        else if (str[ipos + 1] == 'T')
+        {
+            ipos++;
+            char s[8];
+            float t = 0.0 / 0.0;
+            switch (plat) {
+#if defined(__arm__)
+            case HAL_PLATFORM_I6:
+            case HAL_PLATFORM_I6C:
+            case HAL_PLATFORM_M6:
+                FILE* file;
+                char line[20] = {0};
+                if (file = fopen("/sys/class/mstar/msys/TEMP_R", "r")) {
+                    fgets(line, 20, file);
+                    char *remain, *parsed = strstr(line, "Temperature ");
+                    t = strtof(parsed + 12, &remain);
+                    fclose(file);
+                }
+                break;
+            case HAL_PLATFORM_V2:  t = v2_system_readtemp(); break;
+            case HAL_PLATFORM_V3:  t = v3_system_readtemp(); break;
+            case HAL_PLATFORM_V4:  t = v4_system_readtemp(); break;
+#endif
+            }
+            sprintf(s, "%.1f", t);
+            strcat(out, s);
+            opos += strlen(s);
+        }
         else if (str[ipos + 1] == 't')
         {
             ipos++;
@@ -118,8 +146,8 @@ int region_parse_bitmap(FILE **file, bitmapfile *bmpFile, bitmapinfo *bmpInfo)
         HAL_ERROR("region", "Extracting the bitmap info failed!\n");
     if (bmpInfo->bitCount < 24)
         HAL_ERROR("region", "Indexed or <3bpp bitmaps are not supported!\n");
-    if (bmpInfo->bitCount != 32 && bmpInfo->compression)
-        HAL_ERROR("region", "Bitfields and compressed modes are not supported!\n");
+    if (bmpInfo->compression != 0 && !(bmpInfo->compression == 3 && (bmpInfo->bitCount == 16 || bmpInfo->bitCount == 32)))
+        HAL_ERROR("region", "Compressed modes are not supported!\n");
 
     return EXIT_SUCCESS;
 }
@@ -128,6 +156,7 @@ int region_prepare_bitmap(char *path, hal_bitmap *bitmap)
 {
     bitmapfile bmpFile;
     bitmapinfo bmpInfo;
+    bitmapfields bmpFields;
     static FILE *file;
     void *buffer, *start;
     unsigned int size;
@@ -140,6 +169,9 @@ int region_prepare_bitmap(char *path, hal_bitmap *bitmap)
 
     if (region_parse_bitmap(&file, &bmpFile, &bmpInfo))
         HAL_ERROR("region", "Bitmap file \"%s\" cannot be processed!\n", path);
+
+    if (bmpInfo.compression == 3 && fread(&bmpFields, 1, sizeof(bitmapfields), file) != sizeof(bitmapfields))
+        HAL_ERROR("region", "Extracting the bitmap fields failed!\n");
     
     bpp = bmpInfo.bitCount / 8;
     size = bmpInfo.width * abs(bmpInfo.height);
@@ -171,17 +203,30 @@ int region_prepare_bitmap(char *path, hal_bitmap *bitmap)
 
     start = buffer;
     dest = bitmap->data;
-    for (int i = 0; i < size; i++) {
-        if ((pos = bmpInfo.bitCount) == 24)
-            alpha = 0xFF;
-        else
-            alpha = (*((unsigned int*)start) >> (pos -= 8)) & 0xFF;
-        red = (*((unsigned int*)start) >> (pos -= 8)) & 0xFF;
-        green = (*((unsigned int*)start) >> (pos -= 8)) & 0xFF;
-        blue = (*((unsigned int*)start) >> (pos -= 8)) & 0xFF;
-        *dest = ((alpha & 0x80) << 8) | ((red & 0xF8) << 7) | ((green & 0xF8) << 2) | ((blue & 0xF8) >> 3);
-        start += bpp;
-        dest++;
+
+    if (bmpInfo.compression != 3) {
+        for (int i = 0; i < size; i++) {
+            if ((pos = bmpInfo.bitCount) == 24)
+                alpha = 0xFF;
+            else
+                alpha = (*((unsigned int*)start) >> (pos -= 8)) & 0xFF;
+            red = (*((unsigned int*)start) >> (pos -= 8)) & 0xFF;
+            green = (*((unsigned int*)start) >> (pos -= 8)) & 0xFF;
+            blue = (*((unsigned int*)start) >> (pos -= 8)) & 0xFF;
+            *dest = ((alpha & 0x80) << 8) | ((red & 0xF8) << 7) | ((green & 0xF8) << 2) | ((blue & 0xF8) >> 3);
+            start += bpp;
+            dest++;
+        }
+    } else {
+        for (int i = 0; i < size; i++) {
+            alpha = (*((unsigned int*)start) & bmpFields.alphaMask) >> __builtin_ctz(bmpFields.alphaMask);
+            red = (*((unsigned int*)start) & bmpFields.redMask) >> __builtin_ctz(bmpFields.redMask);
+            green = (*((unsigned int*)start) & bmpFields.greenMask) >> __builtin_ctz(bmpFields.greenMask);
+            blue = (*((unsigned int*)start) & bmpFields.blueMask) >> __builtin_ctz(bmpFields.blueMask);
+            *dest = ((alpha & 0x80) << 8) | ((red & 0xF8) << 7) | ((green & 0xF8) << 2) | ((blue & 0xF8) >> 3);
+            start += bpp;
+            dest++;
+        }
     }
     free(buffer);
 
@@ -199,7 +244,7 @@ void *region_thread(void)
 #if defined(__arm__)
         case HAL_PLATFORM_I6:  i6_region_init(); break;
         case HAL_PLATFORM_I6C: i6c_region_init(); break;
-        case HAL_PLATFORM_I6F: i6f_region_init(); break;
+        case HAL_PLATFORM_M6:  m6_region_init(); break;
 #endif
     }
 
@@ -249,9 +294,9 @@ void *region_thread(void)
                                 i6c_region_create(id, rect, osds[id].opal);
                                 i6c_region_setbitmap(id, &bitmap);
                                 break;
-                            case HAL_PLATFORM_I6F:
-                                i6f_region_create(id, rect, osds[id].opal);
-                                i6f_region_setbitmap(id, &bitmap);
+                            case HAL_PLATFORM_M6:
+                                m6_region_create(id, rect, osds[id].opal);
+                                m6_region_setbitmap(id, &bitmap);
                                 break;
                             case HAL_PLATFORM_V1:
                                 v1_region_create(id, rect, osds[id].opal);
@@ -305,9 +350,9 @@ void *region_thread(void)
                                 i6c_region_create(id, rect, osds[id].opal);
                                 i6c_region_setbitmap(id, &bitmap);
                                 break;
-                            case HAL_PLATFORM_I6F:
-                                i6f_region_create(id, rect, osds[id].opal);
-                                i6f_region_setbitmap(id, &bitmap);
+                            case HAL_PLATFORM_M6:
+                                m6_region_create(id, rect, osds[id].opal);
+                                m6_region_setbitmap(id, &bitmap);
                                 break;
                             case HAL_PLATFORM_V1:
                                 v1_region_create(id, rect, osds[id].opal);
@@ -341,7 +386,7 @@ void *region_thread(void)
                         case HAL_PLATFORM_GM:  gm_region_destroy(id); break;
                         case HAL_PLATFORM_I6:  i6_region_destroy(id); break;
                         case HAL_PLATFORM_I6C: i6c_region_destroy(id); break;
-                        case HAL_PLATFORM_I6F: i6f_region_destroy(id); break;
+                        case HAL_PLATFORM_M6:  m6_region_destroy(id); break;
                         case HAL_PLATFORM_V1:  v1_region_destroy(id); break;
                         case HAL_PLATFORM_V2:  v2_region_destroy(id); break;
                         case HAL_PLATFORM_V3:  v3_region_destroy(id); break;
@@ -360,7 +405,7 @@ void *region_thread(void)
 #if defined(__arm__)
         case HAL_PLATFORM_I6:  i6_region_deinit(); break;
         case HAL_PLATFORM_I6C: i6c_region_deinit(); break;
-        case HAL_PLATFORM_I6F: i6f_region_deinit(); break;
+        case HAL_PLATFORM_M6:  m6_region_deinit(); break;
 #endif
     }
 }
@@ -371,13 +416,11 @@ int start_region_handler() {
     size_t stacksize;
     pthread_attr_getstacksize(&thread_attr, &stacksize);
     size_t new_stacksize = 320 * 1024;
-    if (pthread_attr_setstacksize(&thread_attr, new_stacksize)) {
+    if (pthread_attr_setstacksize(&thread_attr, new_stacksize))
         HAL_DANGER("region", "Can't set stack size %zu\n", new_stacksize);
-    }
     pthread_create(&regionPid, &thread_attr, (void *(*)(void *))region_thread, NULL);
-    if (pthread_attr_setstacksize(&thread_attr, stacksize)) {
-        HAL_DANGER("region", "Error:  Can't set stack size %zu\n", stacksize);
-    }
+    if (pthread_attr_setstacksize(&thread_attr, stacksize))
+        HAL_DANGER("region", "Can't set stack size %zu\n", stacksize);
     pthread_attr_destroy(&thread_attr);
 }
 

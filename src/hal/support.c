@@ -10,58 +10,17 @@ hal_chnstate *chnState = NULL;
 char chip[16] = "unknown";
 char family[32] = {0};
 hal_platform plat = HAL_PLATFORM_UNK;
+char sensor[16] = "unidentified";
 int series = 0;
-
-bool hal_registry(unsigned int addr, unsigned int *data, hal_register_op op) {
-    static int mem_fd;
-    static char *loaded_area;
-    static unsigned int loaded_offset;
-    static unsigned int loaded_size;
-
-    unsigned int offset = addr & 0xffff0000;
-    unsigned int size = 0xffff;
-    if (!addr || (loaded_area && offset != loaded_offset))
-        if (munmap(loaded_area, loaded_size))
-            fprintf(stderr, "hal_registry munmap error: %s (%d)\n",
-                strerror(errno), errno);
-
-    if (!addr) {
-        close(mem_fd);
-        return true;
-    }
-
-    if (!mem_fd && (mem_fd = open("/dev/mem", O_RDWR | O_SYNC)) < 0) {
-        fprintf(stderr, "can't open /dev/mem\n");
-        return false;
-    }
-
-    volatile char *mapped_area;
-    if (offset != loaded_offset) {
-        mapped_area = mmap64(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, mem_fd, offset);
-        if (mapped_area == MAP_FAILED) {
-            fprintf(stderr, "hal_registry mmap error: %s (%d)\n",
-                    strerror(errno), errno);
-            return false;
-        }
-        loaded_area = (char *)mapped_area;
-        loaded_size = size;
-        loaded_offset = offset;
-    } else
-        mapped_area = loaded_area;
-
-    if (op & OP_READ)
-        *data = *(volatile unsigned int *)(mapped_area + (addr - offset));
-    if (op & OP_WRITE)
-        *(volatile unsigned int *)(mapped_area + (addr - offset)) = *data;
-
-    return true;
-}
 
 void hal_identify(void) {
     unsigned int val = 0;
     FILE *file;
     char *endMark;
     char line[200] = {0};
+
+    char *sensorlocal = getenv("SENSOR");
+    if (*sensorlocal) strncpy(sensor, sensorlocal, sizeof(sensor));
 
 #ifdef __arm__
     if (!access("/proc/mi_modules", F_OK) && 
@@ -105,14 +64,14 @@ void hal_identify(void) {
                 if (package[2] == 'A')
                     strcpy(chip, "SSC33[8/9]G");
                 else {
-                    if (sysconf(_SC_NPROCESSORS_CONF) == 1)
+                    if (sysconf(_SC_NPROCESSORS_ONLN) == 1)
                         strcpy(chip, "SSC30K");
                     else
                         strcpy(chip, "SSC33[6/8]");
                     if (memory > 128)
-                        strcat(chip, "D");
-                    else if (memory > 64)
                         strcat(chip, "Q");
+                    else if (memory > 64)
+                        strcat(chip, "D");
                 }
                 strcpy(family, "infinity6e");
                 break;
@@ -140,13 +99,13 @@ void hal_identify(void) {
                 vid_thread = i6c_video_thread;
                 break;
             case 0xFB:
-                plat = HAL_PLATFORM_I6F;
-                strcpy(chip, "SSC379G");
-                strcpy(family, "infinity6f");
-                chnCount = I6F_VENC_CHN_NUM;
-                chnState = (hal_chnstate*)i6f_state;
-                aud_thread = i6f_audio_thread;
-                vid_thread = i6f_video_thread;
+                plat = HAL_PLATFORM_M6;
+                strcpy(chip, "SSC359G");
+                strcpy(family, "mercury6");
+                chnCount = M6_VENC_CHN_NUM;
+                chnState = (hal_chnstate*)m6_state;
+                aud_thread = m6_audio_thread;
+                vid_thread = m6_video_thread;
                 break;
             default:
                 plat = HAL_PLATFORM_UNK;

@@ -38,11 +38,11 @@ In spite of these design choices, Divinus boasts numerous features that cater to
 | infinity6b0[^14]        | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
 | infinity6e[^15]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
 | infinity6c[^16]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
-| infinity6f[^17]         | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
+| mercury6[^17]           | ✔️           | ✔️           | ✔️          | ✔️          | ✔️                |
 
 _✔️ - supported, ↻ - in development, ✗ - unsupported, ⁿ/ₐ - not supported by hardware_
 
-_* At the moment, only text, 24-bit and 32-bit RGB overlays are handled, matricial formats and covers are to follow_
+_* At the moment, text, RGB or bitfield bitmaps and PNG overlays are handled, more matricial formats and covers are to follow_
 
 [^1]: CV181x\[C/H\], SG200\[0/2\]
 [^2]: GM813\[5/6/8\]\(S\)
@@ -60,7 +60,7 @@ _* At the moment, only text, 24-bit and 32-bit RGB overlays are handled, matrici
 [^14]: SSC33\[3/5/7\]\(DE\)
 [^15]: SSC30K\[D/Q\], SSC336\[D/Q\], SSC338\[D/G/Q\] and SSC339G
 [^16]: SSC377\(D/DE/QE\) or SSC378\[DE/QE\]
-[^17]: SSC379G
+[^17]: SSC359G
 
 
 ### Documentation
@@ -77,6 +77,11 @@ _* At the moment, only text, 24-bit and 32-bit RGB overlays are handled, matrici
 - [ ] Lens correction profiles
 - [ ] Local recordings with motion detection
 - [ ] Alternative audio codecs
+
+
+### Disclaimer
+
+This software is provided AS IS and for research purposes only. OpenIPC shall not be liable for any loss or damage caused by the use of these files or the use of, or reliance upon, any information contained within this project.
 
 
 ### Technical support and donations

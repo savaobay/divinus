@@ -51,6 +51,11 @@ const char error405[] = "HTTP/1.1 405 Method Not Allowed\r\n" \
                         "Connection: close\r\n" \
                         "\r\n" \
                         "This method is not handled by this server.\r\n";
+const char error500[] = "HTTP/1.1 500 Internal Server Error\r\n" \
+                        "Content-Type: text/plain\r\n" \
+                        "Connection: close\r\n" \
+                        "\r\n" \
+                        "An invalid operation was caught on this request.\r\n";
 
 void close_socket_fd(int socket_fd) {
     shutdown(socket_fd, SHUT_RDWR);
@@ -58,29 +63,30 @@ void close_socket_fd(int socket_fd) {
 }
 
 void free_client(int i) {
-    if (client_fds[i].socket_fd < 0)
-        return;
+    if (client_fds[i].socket_fd < 0) return;
+
     close_socket_fd(client_fds[i].socket_fd);
     client_fds[i].socket_fd = -1;
 }
 
 int send_to_fd(int client_fd, char *buf, ssize_t size) {
     ssize_t sent = 0, len = 0;
-    if (client_fd < 0)
-        return -1;
+    if (client_fd < 0) return -1;
+
     while (sent < size) {
         len = send(client_fd, buf + sent, size - sent, MSG_NOSIGNAL);
-        if (len < 0)
-            return -1;
+        if (len < 0) return -1;
         sent += len;
     }
+
     return 0;
 }
 
 int send_to_fd_nonblock(int client_fd, char *buf, ssize_t size) {
-    if (client_fd < 0)
-        return -1;
+    if (client_fd < 0) return -1;
+
     send(client_fd, buf, size, MSG_DONTWAIT | MSG_NOSIGNAL);
+
     return 0;
 }
 
@@ -89,6 +95,7 @@ int send_to_client(int i, char *buf, ssize_t size) {
         free_client(i);
         return -1;
     }
+    
     return 0;
 }
 
@@ -105,10 +112,8 @@ void send_h26x_to_client(char index, hal_vidstream *stream) {
 
         pthread_mutex_lock(&client_fds_mutex);
         for (unsigned int i = 0; i < MAX_CLIENTS; ++i) {
-            if (client_fds[i].socket_fd < 0)
-                continue;
-            if (client_fds[i].type != STREAM_H26X)
-                continue;
+            if (client_fds[i].socket_fd < 0) continue;
+            if (client_fds[i].type != STREAM_H26X) continue;
 
             for (char j = 0; j < pack->naluCnt; j++) {
                 if (client_fds[i].nalCnt == 0 &&
@@ -116,7 +121,7 @@ void send_h26x_to_client(char index, hal_vidstream *stream) {
                     pack->nalu[j].type != NalUnitType_SPS_HEVC)
                     continue;
 
-#ifdef DEBUG
+#ifdef DEBUG_VIDEO
                 printf("NAL: %s send to %d\n", nal_type_to_str(pack->nalu[j].type), i);
 #endif
 
@@ -150,7 +155,7 @@ void send_mp4_to_client(char index, hal_vidstream *stream, char isH265) {
         unsigned char *pack_data = pack->data + pack->offset;
 
         for (char j = 0; j < pack->naluCnt; j++) {
-#ifdef DEBUG
+#ifdef DEBUG_VIDEO
             printf("NAL: %s received in packet %d\n", nal_type_to_str(pack->nalu[j].type), i);
             printf("     starts at %p, ends at %p\n", pack_data + pack->nalu[j].offset, pack_data + pack->nalu[j].offset + pack->nalu[j].length);
 #endif
@@ -172,10 +177,8 @@ void send_mp4_to_client(char index, hal_vidstream *stream, char isH265) {
         static char len_buf[50];
         pthread_mutex_lock(&client_fds_mutex);
         for (unsigned int i = 0; i < MAX_CLIENTS; ++i) {
-            if (client_fds[i].socket_fd < 0)
-                continue;
-            if (client_fds[i].type != STREAM_MP4)
-                continue;
+            if (client_fds[i].socket_fd < 0) continue;
+            if (client_fds[i].type != STREAM_MP4) continue;
 
             if (!client_fds[i].mp4.header_sent) {
                 struct BitBuf header_buf;
@@ -231,10 +234,8 @@ void send_mp4_to_client(char index, hal_vidstream *stream, char isH265) {
 void send_mp3_to_client(char *buf, ssize_t size) {
     pthread_mutex_lock(&client_fds_mutex);
     for (unsigned int i = 0; i < MAX_CLIENTS; ++i) {
-        if (client_fds[i].socket_fd < 0)
-            continue;
-        if (client_fds[i].type != STREAM_MP3)
-            continue;
+        if (client_fds[i].socket_fd < 0) continue;
+        if (client_fds[i].type != STREAM_MP3) continue;
 
         static char len_buf[50];
         ssize_t len_size = sprintf(len_buf, "%zX\r\n", size);
@@ -251,10 +252,8 @@ void send_mp3_to_client(char *buf, ssize_t size) {
 void send_pcm_to_client(hal_audframe *frame) {
     pthread_mutex_lock(&client_fds_mutex);
     for (unsigned int i = 0; i < MAX_CLIENTS; ++i) {
-        if (client_fds[i].socket_fd < 0)
-            continue;
-        if (client_fds[i].type != STREAM_PCM)
-            continue;
+        if (client_fds[i].socket_fd < 0) continue;
+        if (client_fds[i].type != STREAM_PCM) continue;
 
         static char len_buf[50];
         ssize_t len_size = sprintf(len_buf, "%zX\r\n", frame->length[0]);
@@ -268,22 +267,20 @@ void send_pcm_to_client(hal_audframe *frame) {
     pthread_mutex_unlock(&client_fds_mutex);
 }
 
-void send_mjpeg(char index, char *buf, ssize_t size) {
+void send_mjpeg_to_client(char index, char *buf, ssize_t size) {
     static char prefix_buf[128];
-    ssize_t prefix_size = sprintf(
-        prefix_buf,
-        "--boundarydonotcross\r\nContent-Type:image/jpeg\r\nContent-Length: "
-        "%lu\r\n\r\n",
-        size);
+    ssize_t prefix_size = sprintf(prefix_buf,
+        "--boundarydonotcross\r\n"
+        "Content-Type:image/jpeg\r\n"
+        "Content-Length: %lu\r\n\r\n", size);
     buf[size++] = '\r';
     buf[size++] = '\n';
 
     pthread_mutex_lock(&client_fds_mutex);
     for (unsigned int i = 0; i < MAX_CLIENTS; ++i) {
-        if (client_fds[i].socket_fd < 0)
-            continue;
-        if (client_fds[i].type != STREAM_MJPEG)
-            continue;
+        if (client_fds[i].socket_fd < 0) continue;
+        if (client_fds[i].type != STREAM_MJPEG) continue;
+
         if (send_to_client(i, prefix_buf, prefix_size) < 0)
             continue; // send <SIZE>\r\n
         if (send_to_client(i, buf, size) < 0)
@@ -292,7 +289,7 @@ void send_mjpeg(char index, char *buf, ssize_t size) {
     pthread_mutex_unlock(&client_fds_mutex);
 }
 
-void send_jpeg(char index, char *buf, ssize_t size) {
+void send_jpeg_to_client(char index, char *buf, ssize_t size) {
     static char prefix_buf[128];
     ssize_t prefix_size = sprintf(
         prefix_buf,
@@ -304,10 +301,9 @@ void send_jpeg(char index, char *buf, ssize_t size) {
 
     pthread_mutex_lock(&client_fds_mutex);
     for (unsigned int i = 0; i < MAX_CLIENTS; ++i) {
-        if (client_fds[i].socket_fd < 0)
-            continue;
-        if (client_fds[i].type != STREAM_JPEG)
-            continue;
+        if (client_fds[i].socket_fd < 0) continue;
+        if (client_fds[i].type != STREAM_JPEG) continue;
+
         if (send_to_client(i, prefix_buf, prefix_size) < 0)
             continue; // send <SIZE>\r\n
         if (send_to_client(i, buf, size) < 0)
@@ -362,15 +358,14 @@ int send_file(const int client_fd, const char *path) {
         FILE *file = fopen(path, "r");
         if (file == NULL) {
             close_socket_fd(client_fd);
-            return 0;
+            return EXIT_SUCCESS;
         }
         char header[1024];
-        int header_len = sprintf(
-            header, "HTTP/1.1 200 OK\r\n"
+        int header_len = sprintf(header,
+            "HTTP/1.1 200 OK\r\n"
             "Content-Type: %s\r\n"
             "Transfer-Encoding: chunked\r\n"
-            "Connection: keep-alive\r\n\r\n",
-            mime);
+            "Connection: keep-alive\r\n\r\n", mime);
         send_to_fd(client_fd, header, header_len); // zero ending string!
         const int buf_size = 1024;
         char buf[buf_size + 2];
@@ -378,8 +373,7 @@ int send_file(const int client_fd, const char *path) {
         ssize_t len_size;
         while (1) {
             ssize_t size = fread(buf, sizeof(char), buf_size, file);
-            if (size <= 0)
-                break;
+            if (size <= 0) break;
             len_size = sprintf(len_buf, "%zX\r\n", size);
             buf[size++] = '\r';
             buf[size++] = '\n';
@@ -390,22 +384,34 @@ int send_file(const int client_fd, const char *path) {
         send_to_fd(client_fd, end, sizeof(end));
         fclose(file);
         close_socket_fd(client_fd);
-        return 1;
+        return EXIT_FAILURE;
     }
     send_and_close(client_fd, (char*)error404, strlen(error404));
-    return 0;
+    return EXIT_FAILURE;
+}
+
+void send_binary(const int client_fd, const char *data, const long size) {
+    char *buf;
+    int buf_len = asprintf(&buf,
+        "HTTP/1.1 200 OK\r\n" \
+        "Content-Type: application/octet-stream\r\n" \
+        "Content-Length: %zu\r\n" \
+        "Connection: close\r\n\r\n", size);
+    send_to_fd(client_fd, buf, buf_len);
+    send_to_fd(client_fd, (char*)data, size);
+    send_to_fd(client_fd, "\r\n", 2);
+    close_socket_fd(client_fd);
+    free(buf);
 }
 
 void send_html(const int client_fd, const char *data) {
     char *buf;
-    int buf_len = asprintf(
-        &buf,
+    int buf_len = asprintf(&buf,
         "HTTP/1.1 200 OK\r\n" \
         "Content-Type: text/html\r\n" \
         "Content-Length: %zu\r\n" \
         "Connection: close\r\n" \
-        "\r\n%s",
-        strlen(data), data);
+        "\r\n%s", strlen(data), data);
     buf[buf_len++] = 0;
     send_and_close(client_fd, buf, buf_len);
     free(buf);
@@ -465,7 +471,7 @@ void parse_request(struct Request *req) {
         while (*v && *v == ' ' && v++);
         h->name = k;
         h++->value = v;
-#ifdef DEBUG
+#ifdef DEBUG_HTTP
         fprintf(stderr, "         (H) %s: %s\n", k, v);
 #endif
         e = v + 1 + strlen(v);
@@ -501,7 +507,7 @@ void respond_request(struct Request *req) {
 
     if (app_config.web_enable_auth) {
         char *auth = request_header("Authorization");
-        char cred[65], valid[256];
+        char cred[66], valid[256];
 
         strcpy(cred, app_config.web_auth_user);
         strcpy(cred + strlen(app_config.web_auth_user), ":");
@@ -514,18 +520,17 @@ void respond_request(struct Request *req) {
                 "HTTP/1.1 401 Unauthorized\r\n"
                 "Content-Type: text/plain\r\n"
                 "WWW-Authenticate: Basic realm=\"Access the camera services\"\r\n"
-                "Connection: close\r\n\r\n"
-            );
+                "Connection: close\r\n\r\n");
             send_and_close(req->clntFd, response, respLen);
             return;
         }
     }
 
     if (EQUALS(req->uri, "/exit")) {
-        int respLen = sprintf(
-            response, "HTTP/1.1 200 OK\r\n"
-                    "Connection: close\r\n\r\n"
-                    "Closing...");
+        int respLen = sprintf(response,
+            "HTTP/1.1 200 OK\r\n"
+            "Connection: close\r\n\r\n"
+            "Closing...");
         send_and_close(req->clntFd, response, respLen);
         keepRunning = 0;
         graceful = 1;
@@ -985,9 +990,87 @@ void respond_request(struct Request *req) {
 
                 char path[32];
                 sprintf(path, "/tmp/osd%d.bmp", id);
-                FILE *img = fopen(path, "wb");
-                fwrite(payloadb, sizeof(char), payloade - payloadb, img);
-                fclose(img);
+
+                if (!memcmp(payloadb, "\x89\x50\x4E\x47\xD\xA\x1A\xA", 8)) {
+                    spng_ctx *ctx = spng_ctx_new(0);
+                    if (!ctx) {
+                        HAL_DANGER("server", "Constructing the PNG decoder context failed!\n");
+                        goto png_error;
+                    }
+
+                    spng_set_crc_action(ctx, SPNG_CRC_USE, SPNG_CRC_USE);
+                    spng_set_chunk_limits(ctx,
+                        app_config.web_server_thread_stack_size,
+                        app_config.web_server_thread_stack_size);
+                    spng_set_png_buffer(ctx, payloadb, payloade - payloadb);
+
+                    struct spng_ihdr ihdr;
+                    int err = spng_get_ihdr(ctx, &ihdr);
+                    if (err) {
+                        HAL_DANGER("server", "Parsing the PNG IHDR chunk failed!\nError: %s\n", spng_strerror(err));
+                        goto png_error;
+                    }
+#ifdef DEBUG_IMAGE
+    printf("[image] (PNG) width: %u, height: %u, depth: %u, color type: %u -> %s\n",
+        ihdr.width, ihdr.height, ihdr.bit_depth, ihdr.color_type, color_type_str(ihdr.color_type));
+    printf("        compress: %u, filter: %u, interl: %u\n",
+        ihdr.compression_method, ihdr.filter_method, ihdr.interlace_method);
+#endif
+
+                    struct spng_plte plte = {0};
+                    err = spng_get_plte(ctx, &plte);
+                    if (err && err != SPNG_ECHUNKAVAIL) {
+                        HAL_DANGER("server", "Parsing the PNG PLTE chunk failed!\nError: %s\n", spng_strerror(err));
+                        goto png_error;
+                    }
+#ifdef DEBUG_IMAGE
+    printf("        palette: %u\n", plte.n_entries);
+#endif
+
+                    size_t bitmapsize;
+                    err = spng_decoded_image_size(ctx, SPNG_FMT_RGBA8, &bitmapsize);
+                    if (err) {
+                        HAL_DANGER("server", "Recovering the resulting image size failed!\nError: %s\n", spng_strerror(err));
+                        goto png_error;
+                    }
+
+                    unsigned char *bitmap = malloc(bitmapsize);
+                    if (!bitmap) {
+                        HAL_DANGER("server", "Allocating the PNG bitmap output buffer for size %u failed!\n", bitmapsize);
+                        goto png_error;
+                    }
+
+                    err = spng_decode_image(ctx, bitmap, bitmapsize, SPNG_FMT_RGBA8, 0);
+                    if (!bitmap) {
+                        HAL_DANGER("server", "Decoding the PNG image failed!\nError: %s\n", spng_strerror(err));
+                        goto png_error;
+                    }
+
+                    int headersize = 2 + sizeof(bitmapfile) + sizeof(bitmapinfo) + sizeof(bitmapfields);
+                    bitmapfile headerfile = {.size = bitmapsize + headersize, .offBits = headersize};
+                    bitmapinfo headerinfo = {.size = sizeof(bitmapinfo), 
+                                             .width = ihdr.width, .height = -ihdr.height, .planes = 1, .bitCount = 32,
+                                             .compression = 3, .sizeImage = bitmapsize, .xPerMeter = 2835, .yPerMeter = 2835};
+                    bitmapfields headerfields = {.redMask = 0xFF << 0, .greenMask = 0xFF << 8, .blueMask = 0xFF << 16, .alphaMask = 0xFF << 24,
+                                                 .clrSpace = {'W', 'i', 'n', ' '}};
+
+                    FILE *img = fopen(path, "wb");
+                    fwrite("BM", sizeof(char), 2, img);
+                    fwrite(&headerfile, sizeof(bitmapfile), 1, img);
+                    fwrite(&headerinfo, sizeof(bitmapinfo), 1, img);
+                    fwrite(&headerfields, sizeof(bitmapfields), 1, img);
+                    fwrite(bitmap, sizeof(char), bitmapsize, img);
+                    fclose(img);
+
+png_error:
+                    spng_ctx_free(ctx);
+                    free(bitmap);
+                    send_and_close(req->clntFd, (char*)error500, strlen(error500));
+                } else {
+                    FILE *img = fopen(path, "wb");
+                    fwrite(payloadb, sizeof(char), payloade - payloadb, img);
+                    fclose(img);
+                }
 
                 strcpy(osds[id].text, "");
                 osds[id].updt = 1;
@@ -1043,6 +1126,13 @@ void respond_request(struct Request *req) {
                     if (remain != value)
                         osds[id].posy = result;
                 }
+                else if (EQUALS(key, "pos")) {
+                    int x, y;
+                    if (sscanf(value, "%d,%d", &x, &y) == 2) {
+                        osds[id].posx = x;
+                        osds[id].posy = y;
+                    }
+                }
             }
             osds[id].updt = 1;
         }
@@ -1051,7 +1141,7 @@ void respond_request(struct Request *req) {
             "Content-Type: application/json;charset=UTF-8\r\n"
             "Connection: close\r\n"
             "\r\n"
-            "{\"id\":%d,\"color\":%#x,\"opal\":%d\"pos\":[%d,%d],\"font\":\"%s\",\"size\":%.1f,\"text\":\"%s\"}",
+            "{\"id\":%d,\"color\":\"%#x\",\"opal\":%d,\"pos\":[%d,%d],\"font\":\"%s\",\"size\":%.1f,\"text\":\"%s\"}",
             id, osds[id].color, osds[id].opal, osds[id].posx, osds[id].posy, osds[id].font, osds[id].size, osds[id].text);
         send_and_close(req->clntFd, response, respLen);
         return;
@@ -1075,9 +1165,8 @@ void respond_request(struct Request *req) {
             "Content-Type: application/json;charset=UTF-8\r\n"
             "Connection: close\r\n"
             "\r\n"
-            "{\"chip\":\"%s\",\"loadavg\":[%.2f,%.2f,%.2f],\"memory\":\"%s\",\"uptime\":\"%s\"}",
-            chip, si.loads[0] / 65536.0, si.loads[1] / 65536.0, si.loads[2] / 65536.0,
-            memory, uptime);
+            "{\"chip\":\"%s\",\"loadavg\":[%.2f,%.2f,%.2f],\"memory\":\"%s\",\"sensor\":\"%s\",\"uptime\":\"%s\"}",
+            chip, si.loads[0] / 65536.0, si.loads[1] / 65536.0, si.loads[2] / 65536.0, memory, sensor, uptime);
         send_and_close(req->clntFd, response, respLen);
         return;
     }
@@ -1161,7 +1250,7 @@ void *server_thread(void *vargp) {
 }
 
 int start_server() {
-    for (uint32_t i = 0; i < MAX_CLIENTS; ++i) {
+    for (unsigned int i = 0; i < MAX_CLIENTS; i++) {
         client_fds[i].socket_fd = -1;
         client_fds[i].type = -1;
     }
