@@ -60,6 +60,7 @@ int save_app_config(void) {
     fprintf(file, "  check_interval_s: %d\n", app_config.check_interval_s);
     fprintf(file, "  ir_cut_pin1: %d\n", app_config.ir_cut_pin1);
     fprintf(file, "  ir_cut_pin2: %d\n", app_config.ir_cut_pin2);
+    fprintf(file, "  ir_led_pin: %d\n", app_config.ir_led_pin);
     fprintf(file, "  pin_switch_delay_us: %d\n", app_config.pin_switch_delay_us);
     fprintf(file, "  adc_device: %s\n", app_config.adc_device);
     fprintf(file, "  adc_threshold: %d\n", app_config.adc_threshold);
@@ -139,6 +140,7 @@ enum ConfigError parse_app_config(void) {
     app_config.osd_enable = false;
     app_config.rtsp_enable = false;
     app_config.rtsp_enable_auth = false;
+    app_config.rtsp_port = 554;
 
     app_config.sensor_config[0] = 0;
     app_config.audio_enable = false;
@@ -161,6 +163,7 @@ enum ConfigError parse_app_config(void) {
     app_config.ir_sensor_pin = 999;
     app_config.ir_cut_pin1 = 999;
     app_config.ir_cut_pin2 = 999;
+    app_config.ir_led_pin = 999;
     app_config.pin_switch_delay_us = 250;
     app_config.check_interval_s = 10;
     app_config.adc_device[0] = 0;
@@ -180,10 +183,10 @@ enum ConfigError parse_app_config(void) {
     enum ConfigError err;
     find_sections(&ini);
 
-    if (plat != HAL_PLATFORM_GM) {
+    if (plat != HAL_PLATFORM_GM && plat != HAL_PLATFORM_RK) {
         err = parse_param_value(&ini, "system", "sensor_config", app_config.sensor_config);
-        if (err != CONFIG_OK && 
-            (plat == HAL_PLATFORM_V1 || plat == HAL_PLATFORM_V2 ||
+        if (err != CONFIG_OK && (plat == HAL_PLATFORM_AK ||
+             plat == HAL_PLATFORM_V1 || plat == HAL_PLATFORM_V2 ||
              plat == HAL_PLATFORM_V3 || plat == HAL_PLATFORM_V4))
             goto RET_ERR;
     }
@@ -235,6 +238,9 @@ enum ConfigError parse_app_config(void) {
             &ini, "night_mode", "ir_cut_pin2", 0, PIN_MAX,
             &app_config.ir_cut_pin2);
         parse_int(
+            &ini, "night_mode", "ir_led_pin", 0, PIN_MAX,
+            &app_config.ir_led_pin);            
+        parse_int(
             &ini, "night_mode", "pin_switch_delay_us", 0, 1000,
             &app_config.pin_switch_delay_us);
         parse_param_value(
@@ -257,6 +263,7 @@ enum ConfigError parse_app_config(void) {
     parse_bool(&ini, "osd", "enable", &app_config.osd_enable);
 
     parse_bool(&ini, "rtsp", "enable", &app_config.rtsp_enable);
+    parse_int(&ini, "rtsp", "port", 0, 65535, &app_config.rtsp_port);
     if (app_config.rtsp_enable) {
             parse_bool(&ini, "rtsp", "enable_auth", &app_config.rtsp_enable_auth);
             parse_param_value(
