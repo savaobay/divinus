@@ -10,6 +10,7 @@
 
 #include "app_config.h"
 #include "hal/support.h"
+#include "lib/spng.h"
 #include "text.h"
 
 #define DEF_COLOR 0xFFFF
@@ -63,10 +64,11 @@ typedef struct {
     char updt;
     char font[32];
     char text[80];
+    char img[64];
 } osd;
 
 extern osd osds[MAX_OSD];
-extern char timefmt[32];
+extern char timefmt[64];
 
 int start_region_handler();
 void stop_region_handler();

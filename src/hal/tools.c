@@ -1,7 +1,47 @@
 #include "tools.h"
 
-static const char basis_64[] =
+static const char base64_table[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+int base64_decode(char *decoded, const char *string, int maxLen) {
+    char buf[3];
+    int buflen = 0, i = 0, v;
+
+    while (*string && *string != '=' && i < maxLen) {
+        const char *p = strchr(base64_table, *string++);
+        if (!p) continue;
+        
+        v = p - base64_table;
+        switch (buflen) {
+            case 0:
+                buf[buflen++] = v << 2;
+                break;
+            case 1:
+                buf[buflen - 1] |= v >> 4;
+                buf[buflen++] = (v & 0xF) << 4;
+                break;
+            case 2:
+                buf[buflen - 1] |= v >> 2;
+                buf[buflen++] = (v & 0x3) << 6;
+                break;
+            case 3:
+                buf[buflen - 1] |= v;
+                if (i + 3 <= maxLen) {
+                    memcpy(decoded + i, buf, 3);
+                    i += 3;
+                }
+                buflen = 0;
+                break;
+        }
+    }
+
+    if (buflen > 0 && i + buflen <= maxLen) {
+        memcpy(decoded + i, buf, buflen);
+        i += buflen;
+    }
+
+    return i;
+}
 
 int base64_encode_length(int len) { return ((len + 2) / 3 * 4) + 1; }
 
@@ -11,22 +51,22 @@ int base64_encode(char *encoded, const char *string, int len) {
 
     p = encoded;
     for (i = 0; i < len - 2; i += 3) {
-        *p++ = basis_64[(string[i] >> 2) & 0x3F];
-        *p++ = basis_64
+        *p++ = base64_table[(string[i] >> 2) & 0x3F];
+        *p++ = base64_table
             [((string[i] & 0x3) << 4) | ((int)(string[i + 1] & 0xF0) >> 4)];
-        *p++ = basis_64
+        *p++ = base64_table
             [((string[i + 1] & 0xF) << 2) | ((int)(string[i + 2] & 0xC0) >> 6)];
-        *p++ = basis_64[string[i + 2] & 0x3F];
+        *p++ = base64_table[string[i + 2] & 0x3F];
     }
     if (i < len) {
-        *p++ = basis_64[(string[i] >> 2) & 0x3F];
+        *p++ = base64_table[(string[i] >> 2) & 0x3F];
         if (i == (len - 1)) {
-            *p++ = basis_64[((string[i] & 0x3) << 4)];
+            *p++ = base64_table[((string[i] & 0x3) << 4)];
             *p++ = '=';
         } else {
-            *p++ = basis_64
+            *p++ = base64_table
                 [((string[i] & 0x3) << 4) | ((int)(string[i + 1] & 0xF0) >> 4)];
-            *p++ = basis_64[((string[i + 1] & 0xF) << 2)];
+            *p++ = base64_table[((string[i + 1] & 0xF) << 2)];
         }
         *p++ = '=';
     }
@@ -97,6 +137,52 @@ int compile_regex(regex_t *r, const char *regex_text) {
         return -1;
     }
     return 1;
+}
+
+
+int escape_url(char *dst, const char *src, size_t maxlen) {
+    static const char hex[] = "0123456789ABCDEF";
+    int len = 0;
+    
+    if (!dst || !src || !maxlen)
+        return 0;
+        
+    while (*src && len < maxlen - 1) {
+        unsigned char c = *src;
+
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            *dst++ = c;
+            len++;
+        } else {
+            if (len + 3 > maxlen - 1)
+                break;
+                
+            *dst++ = '%';
+            *dst++ = hex[c >> 4];
+            *dst++ = hex[c & 0xF];
+            len += 3;
+        }
+        
+        src++;
+    }
+    
+    *dst = '\0';
+    return len;
+}
+
+
+void generate_nonce(char *nonce, size_t len) {
+    static const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    if (len < 2) return;
+
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    unsigned int seed = ts.tv_nsec;
+
+    for (size_t i = 0; i < len - 1; i++)
+        nonce[i] = charset[rand_r(&seed) % (sizeof(charset) - 1)];
+
+    nonce[len - 1] = '\0';
 }
 
 
@@ -212,6 +298,37 @@ int hex_to_int(char value) {
     return -1;
 }
 
+unsigned int ip_to_int(const char *ip) {
+    struct in_addr addr;
+
+    if (!inet_aton(ip, &addr)) 
+        return 0;
+
+    return ntohl(addr.s_addr);
+}
+
+char ip_in_cidr(const char *ip, const char *cidr) {
+    char network[18];
+    int prefix_len = 32;
+
+    strncpy(network, cidr, sizeof(network) - 1);
+    network[sizeof(network) - 1] = '\0';
+
+    char *slash = strchr(network, '/');
+    if (slash) {
+        *slash = '\0';
+        prefix_len = atoi(slash + 1);
+        if (prefix_len < 0 || prefix_len > 32)
+            prefix_len = 32;
+    }
+
+    unsigned int ip_int = ip_to_int(ip);
+    unsigned int network_int = ip_to_int(network);
+    unsigned int mask = prefix_len ? ~((1 << (32 - prefix_len)) - 1) : 0;
+
+    return (ip_int & mask) == (network_int & mask);
+}
+
 char *memstr(char *haystack, char *needle, int size, char needlesize) {
 	for (char *p = haystack; p <= (haystack - needlesize + size); p++)
 		if (!memcmp(p, needle, needlesize)) return p;
@@ -259,4 +376,18 @@ void unescape_uri(char *uri) {
         src++;
     }
     *dst = '\0';
+}
+
+void uuid_generate(char *uuid) {
+    const char *chars = "0123456789abcdef";
+
+    int i, j = 0;
+    for (i = 0; i < 36; i++) {
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            uuid[i] = '-';
+        } else {
+            uuid[i] = chars[rand() % 16];
+        }
+    }
+    uuid[36] = '\0';
 }

@@ -60,8 +60,7 @@ int main(int argc, char *argv[]) {
     if (app_config.watchdog)
         watchdog_start(app_config.watchdog);
 
-    if (app_config.mdns_enable)
-        start_mdns();
+    start_network();
 
     start_server();
 
@@ -77,6 +76,9 @@ int main(int argc, char *argv[]) {
             }
         }
     }
+
+    if (app_config.stream_enable)
+        start_streaming();
 
     if (start_sdk())
         HAL_ERROR("hal", "Failed to start SDK!\n");
@@ -108,10 +110,12 @@ int main(int argc, char *argv[]) {
 
     stop_sdk();
 
+    if (app_config.stream_enable)
+        stop_streaming();
+
     stop_server();
 
-    if (app_config.mdns_enable)
-        stop_mdns();
+    stop_network();
 
     if (app_config.watchdog)
         watchdog_stop();

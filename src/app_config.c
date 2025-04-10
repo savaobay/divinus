@@ -45,6 +45,12 @@ int save_app_config(void) {
     fprintf(file, "system:\n");
     fprintf(file, "  sensor_config: %s\n", app_config.sensor_config);
     fprintf(file, "  web_port: %d\n", app_config.web_port);
+    if (!EMPTY(*app_config.web_whitelist)) {
+        fprintf(file, "  web_whitelist: ");
+        for (int i = 0; app_config.web_whitelist[i] && *app_config.web_whitelist[i]; i++) {
+            fprintf(file, "    - %s\n", app_config.web_whitelist[i]);
+        }
+    }
     fprintf(file, "  web_enable_auth: %s\n", app_config.web_enable_auth ? "true" : "false");
     fprintf(file, "  web_auth_user: %s\n", app_config.web_auth_user);
     fprintf(file, "  web_auth_pass: %s\n", app_config.web_auth_pass);
@@ -52,6 +58,8 @@ int save_app_config(void) {
     fprintf(file, "  isp_thread_stack_size: %d\n", app_config.isp_thread_stack_size);
     fprintf(file, "  venc_stream_thread_stack_size: %d\n", app_config.venc_stream_thread_stack_size);
     fprintf(file, "  web_server_thread_stack_size: %d\n", app_config.web_server_thread_stack_size);
+    if (!EMPTY(timefmt) || EQUALS(timefmt, DEF_TIMEFMT))
+        fprintf(file, "  time_format: %s\n", timefmt);
     fprintf(file, "  watchdog: %d\n", app_config.watchdog);
 
     fprintf(file, "night_mode:\n");
@@ -72,9 +80,26 @@ int save_app_config(void) {
 
     fprintf(file, "rtsp:\n");
     fprintf(file, "  enable: %s\n", app_config.rtsp_enable ? "true" : "false");
+    fprintf(file, "  port: %d\n", app_config.rtsp_port);
+    fprintf(file, "  enable_auth: %s\n", app_config.rtsp_enable_auth ? "true" : "false");
+    fprintf(file, "  auth_user: %s\n", app_config.rtsp_auth_user);
+    fprintf(file, "  auth_pass: %s\n", app_config.rtsp_auth_pass);
+
+    fprintf(file, "stream:\n");
+    fprintf(file, "  enable: %s\n", app_config.stream_enable ? "true" : "false");
+    fprintf(file, "  udp_srcport: %d\n", app_config.stream_udp_srcport);
+    if (!EMPTY(*app_config.stream_dests)) {
+        fprintf(file, "  dests: ");
+        for (int i = 0; app_config.stream_dests[i] && *app_config.stream_dests[i]; i++) {
+            fprintf(file, "    - %s\n", app_config.stream_dests[i]);
+        }
+    }
 
     fprintf(file, "mdns:\n");
     fprintf(file, "  enable: %s\n", app_config.mdns_enable ? "true" : "false");
+
+    fprintf(file, "onvif:\n");
+    fprintf(file, "  enable: %s\n", app_config.onvif_enable ? "true" : "false");
 
     fprintf(file, "audio:\n");
     fprintf(file, "  enable: %s\n", app_config.audio_enable ? "true" : "false");
@@ -89,14 +114,21 @@ int save_app_config(void) {
     fprintf(file, "  width: %d\n", app_config.mp4_width);
     fprintf(file, "  height: %d\n", app_config.mp4_height);
     fprintf(file, "  fps: %d\n", app_config.mp4_fps);
-    fprintf(file, "  gop: %f\n", app_config.mp4_gop);
+    fprintf(file, "  gop: %d\n", app_config.mp4_gop);
     fprintf(file, "  profile: %d\n", app_config.mp4_profile);
     fprintf(file, "  bitrate: %d\n", app_config.mp4_bitrate);
 
     fprintf(file, "osd:\n");
     fprintf(file, "  enable: %s\n", app_config.osd_enable ? "true" : "false");
     for (char i = 0; i < MAX_OSD; i++) {
-        fprintf(file, "    reg%d_text: %s\n", i, osds[i].text);
+        char imgEmpty = EMPTY(osds[i].img);
+        char textEmpty = EMPTY(osds[i].text);
+        if (imgEmpty && textEmpty) continue;
+    
+        if (!imgEmpty)
+            fprintf(file, "    reg_%dimg: %s\n", i, osds[i].img);
+        if (!textEmpty)
+            fprintf(file, "    reg%d_text: %s\n", i, osds[i].text);
         fprintf(file, "    reg%d_font: %s\n", i, osds[i].font);
         fprintf(file, "    reg%d_opal: %d\n", i, osds[i].opal);
         fprintf(file, "    reg%d_posx: %d\n", i, osds[i].posx);
@@ -138,6 +170,7 @@ enum ConfigError parse_app_config(void) {
     memset(&app_config, 0, sizeof(struct AppConfig));
 
     app_config.web_port = 8080;
+    *app_config.web_whitelist[0] = '\0';
     app_config.web_enable_auth = false;
     app_config.web_enable_static = false;
     app_config.isp_thread_stack_size = 16 * 1024;
@@ -146,10 +179,18 @@ enum ConfigError parse_app_config(void) {
     app_config.watchdog = 0;
 
     app_config.mdns_enable = false;
+
     app_config.osd_enable = false;
+    app_config.onvif_enable = false;
     app_config.rtsp_enable = false;
-    app_config.rtsp_enable_auth = false;
     app_config.rtsp_port = 554;
+    app_config.rtsp_enable_auth = false;
+    app_config.rtsp_auth_user[0] = '\0';
+    app_config.rtsp_auth_pass[0] = '\0';
+
+    app_config.stream_enable = false;
+    app_config.stream_udp_srcport = 0;
+    *app_config.stream_dests[0] = '\0';
 
     app_config.sensor_config[0] = 0;
     app_config.audio_enable = false;
@@ -199,11 +240,15 @@ enum ConfigError parse_app_config(void) {
              plat == HAL_PLATFORM_V3 || plat == HAL_PLATFORM_V4))
             goto RET_ERR;
     }
-    int port;
-    err = parse_int(&ini, "system", "web_port", 1, INT_MAX, &port);
+    int port, count;
+    err = parse_int(&ini, "system", "web_port", 0, USHRT_MAX, &port);
     if (err != CONFIG_OK)
         goto RET_ERR;
     app_config.web_port = (unsigned short)port;
+    parse_list(&ini, "system", "web_whitelist",
+        sizeof(app_config.web_whitelist) / sizeof(*app_config.web_whitelist),
+        &count, app_config.web_whitelist);
+    *app_config.web_whitelist[count] = '\0';
     parse_bool(&ini, "system", "web_enable_auth", &app_config.web_enable_auth);
     parse_param_value(
         &ini, "system", "web_auth_user", app_config.web_auth_user);
@@ -228,6 +273,9 @@ enum ConfigError parse_app_config(void) {
         &app_config.web_server_thread_stack_size);
     if (err != CONFIG_OK)
         goto RET_ERR;
+    parse_param_value(&ini, "system", "time_format", timefmt);
+    if (EMPTY(timefmt))
+        strcpy(timefmt, DEF_TIMEFMT);
     parse_int(&ini, "system", "watchdog", 0, INT_MAX, &app_config.watchdog);
 
     err =
@@ -274,6 +322,8 @@ enum ConfigError parse_app_config(void) {
         for (char i = 0; i < MAX_OSD; i++) {
             char param[16];
             int val;
+            sprintf(param, "reg%d_img", i);
+            parse_param_value(&ini, "osd", param, osds[i].img);
             sprintf(param, "reg%d_text", i);
             parse_param_value(&ini, "osd", param, osds[i].text);
             sprintf(param, "reg%d_font", i);
@@ -295,14 +345,29 @@ enum ConfigError parse_app_config(void) {
         }
     }
 
+    parse_bool(&ini, "onvif", "enable", &app_config.onvif_enable);
+
     parse_bool(&ini, "rtsp", "enable", &app_config.rtsp_enable);
-    parse_int(&ini, "rtsp", "port", 0, 65535, &app_config.rtsp_port);
+    parse_int(&ini, "rtsp", "port", 0, USHRT_MAX, &app_config.rtsp_port);
     if (app_config.rtsp_enable) {
-            parse_bool(&ini, "rtsp", "enable_auth", &app_config.rtsp_enable_auth);
-            parse_param_value(
-                &ini, "rtsp", "auth_user", app_config.rtsp_auth_user);
-            parse_param_value(
-                &ini, "rtsp", "auth_pass", app_config.rtsp_auth_pass);
+        parse_bool(&ini, "rtsp", "enable_auth", &app_config.rtsp_enable_auth);
+        parse_param_value(
+            &ini, "rtsp", "auth_user", app_config.rtsp_auth_user);
+        parse_param_value(
+            &ini, "rtsp", "auth_pass", app_config.rtsp_auth_pass);
+    }
+
+    parse_bool(&ini, "stream", "enable", &app_config.stream_enable);
+    if (app_config.stream_enable) {
+        int count, val;
+        parse_int(&ini, "stream", "udp_srcport", 0, USHRT_MAX, &val);
+        if (err != CONFIG_OK) app_config.stream_udp_srcport = (unsigned short)val;
+        err = parse_list(&ini, "stream", "dest",
+            sizeof(app_config.stream_dests) / sizeof(*app_config.stream_dests),
+            &count, app_config.stream_dests);
+        *app_config.stream_dests[count] = '\0';
+        if (err != CONFIG_OK)
+            goto RET_ERR;
     }
 
     parse_bool(&ini, "audio", "enable", &app_config.audio_enable);

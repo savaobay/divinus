@@ -14,6 +14,7 @@ struct AppConfig {
     // [system]
     char sensor_config[128];
     unsigned short web_port;
+    char web_whitelist[4][256];
     bool web_enable_auth;
     char web_auth_user[32];
     char web_auth_pass[32];
@@ -41,6 +42,7 @@ struct AppConfig {
 
     bool osd_enable;
     bool mdns_enable;
+    bool onvif_enable;
 
     // [rtsp]
     bool rtsp_enable;
@@ -48,6 +50,11 @@ struct AppConfig {
     char rtsp_auth_user[32];
     char rtsp_auth_pass[32];
     int rtsp_port;
+
+    // [stream]
+    bool stream_enable;
+    unsigned short stream_udp_srcport;
+    char stream_dests[4][256];
 
     // [audio]
     bool audio_enable;
